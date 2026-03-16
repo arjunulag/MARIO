@@ -90,15 +90,31 @@ class Parameter_init:
     brings it forward
     """
     def forward(self, x):
+        if not isinstance(x, np.ndarray):
+            raise TypeError("x must be a numpy array")
         if x.ndim == 1:
             x = x[np.newaxis, :]
+        if x.ndim != 2:
+            raise ValueError(f"x must be (batch, features), got {x.shape}")
         for layer in self.layers:
             if layer["type"] == "linear":
-                x = x @ layer["W"] + layer["b"]
+                W = layer["W"]
+                b = layer["b"]
+                if W.ndim != 2:
+                    raise ValueError(f"W must be 2D, got {W.shape}")
+                if x.shape[1] != W.shape[0]:
+                    raise ValueError(
+                        f"Input features mismatch: x {x.shape} vs W {W.shape}"
+                    )
+                if b.shape[0] != W.shape[1]:
+                    raise ValueError(
+                        f"Bias mismatch: b {b.shape} vs W {W.shape}"
+                    )
+                x = x @ W + b
             elif "fn" in layer:
                 x = layer["fn"](x)
         return x
- 
+     
     def __repr__(self):
         lines = ["Parameter_init("]
         for i, layer in enumerate(self.layers):
