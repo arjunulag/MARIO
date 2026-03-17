@@ -29,6 +29,8 @@ ACTIVATION_FNS = {
     "sigmoid": sigmoid,
 }
 
+
+#this was written alongside Claude Sonnet 4.6
 """
 Creates weights and biases for network
 """
