@@ -31,13 +31,14 @@ ACTIVATION_FNS = {
 
 
 #this was written alongside Claude Sonnet 4.6
-"""
-Creates weights and biases for network
-"""
+""" Creates weights and biases for network """
 class Parameter_init:
-    def __init__(self, config):
+    def __init__(self, config, l1=0.0, l2=0.0):
         self.config = config
+        self.l1     = l1
+        self.l2     = l2
         self.layers = self._build_layers(config)
+ 
     """
     build layers for the network
     returns the layers
@@ -49,7 +50,7 @@ class Parameter_init:
             self._init_weights(layer)
             layers.append(layer)
         return layers
-    
+ 
     """
     creates a layer with mock weights and bias
     """
@@ -66,7 +67,7 @@ class Parameter_init:
                 "b":    np.zeros((out_dim,)),
                 "activation_hint": layer_config.get("activation_hint", "relu"),
             }
-
+ 
         elif layer_type in ACTIVATION_FNS:
             layer = {"type": layer_type, "fn": ACTIVATION_FNS[layer_type]}
             if layer_type == "relu" and "alpha" in layer_config:
@@ -76,7 +77,7 @@ class Parameter_init:
  
         else:
             raise ValueError(f"Unknown layer type: '{layer_type}'. Valid types: 'linear', {list(ACTIVATION_FNS.keys())}")
-    
+ 
     """
     Creates weights for function
     """
@@ -87,7 +88,7 @@ class Parameter_init:
         hint   = layer.get("activation_hint", "relu")
         std    = np.sqrt(2.0 / fan_in) if hint == "relu" else np.sqrt(1.0 / fan_in)
         layer["W"] = np.random.randn(*layer["W"].shape) * std
-    
+ 
     """
     brings it forward
     """
@@ -101,6 +102,29 @@ class Parameter_init:
                 x = layer["fn"](x)
         return x
  
+    def regularization_loss(self):
+        """
+        Computes L1 and L2 penalty across all linear layers.
+        Biases are excluded (standard practice).
+ 
+        L1 penalty:  l1 * sum(|W|)
+        L2 penalty:  l2 * sum(W^2)
+ 
+        Add the result on top of your prediction loss during training.
+        """
+        l1_penalty = 0.0
+        l2_penalty = 0.0
+ 
+        for layer in self.layers:
+            if layer["type"] != "linear":
+                continue
+ 
+            W = layer["W"]
+            l1_penalty += np.sum(np.abs(W))
+            l2_penalty += np.sum(W ** 2)
+ 
+        return self.l1 * l1_penalty + self.l2 * l2_penalty
+ 
     def __repr__(self):
         lines = ["Parameter_init("]
         for i, layer in enumerate(self.layers):
@@ -109,5 +133,6 @@ class Parameter_init:
                 lines.append(f"  [{i}] Linear({in_d} -> {out_d})")
             else:
                 lines.append(f"  [{i}] {layer['type'].capitalize()}()")
+        lines.append(f"  l1={self.l1}, l2={self.l2}")
         lines.append(")")
         return "\n".join(lines)
