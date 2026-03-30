@@ -1,0 +1,6 @@
+numpy>=2.0
+matplotlib>=3.8
+gymnasium>=1.0
+pygame>=2.5
+PyOpenGL>=3.1
+PyOpenGL-accelerate>=3.1

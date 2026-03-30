@@ -67,8 +67,9 @@ class Parameter_init:
 
         elif layer_type in ACTIVATION_FNS:
             layer = {"type": layer_type, "fn": ACTIVATION_FNS[layer_type]}
-            if layer_type == "relu" and "alpha" in layer_config:
-                alpha = layer_config["alpha"]
+            if layer_type == "relu":
+                alpha = layer_config.get("alpha", 0.01)
+                layer["alpha"] = alpha
                 layer["fn"] = lambda z, a=alpha: relu(z, a)
             return layer
  
