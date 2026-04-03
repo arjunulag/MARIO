@@ -70,8 +70,9 @@ class Parameter_init:
  
         elif layer_type in ACTIVATION_FNS:
             layer = {"type": layer_type, "fn": ACTIVATION_FNS[layer_type]}
-            if layer_type == "relu" and "alpha" in layer_config:
-                alpha = layer_config["alpha"]
+            if layer_type == "relu":
+                alpha = layer_config.get("alpha", 0.01)
+                layer["alpha"] = alpha
                 layer["fn"] = lambda z, a=alpha: relu(z, a)
             return layer
  
@@ -93,37 +94,30 @@ class Parameter_init:
     brings it forward
     """
     def forward(self, x):
+        if not isinstance(x, np.ndarray):
+            raise TypeError("x must be a numpy array")
         if x.ndim == 1:
             x = x[np.newaxis, :]
+        if x.ndim != 2:
+            raise ValueError(f"x must be (batch, features), got {x.shape}")
         for layer in self.layers:
             if layer["type"] == "linear":
-                x = x @ layer["W"] + layer["b"]
+                W = layer["W"]
+                b = layer["b"]
+                if W.ndim != 2:
+                    raise ValueError(f"W must be 2D, got {W.shape}")
+                if x.shape[1] != W.shape[0]:
+                    raise ValueError(
+                        f"Input features mismatch: x {x.shape} vs W {W.shape}"
+                    )
+                if b.shape[0] != W.shape[1]:
+                    raise ValueError(
+                        f"Bias mismatch: b {b.shape} vs W {W.shape}"
+                    )
+                x = x @ W + b
             elif "fn" in layer:
                 x = layer["fn"](x)
         return x
- 
-    def regularization_loss(self):
-        """
-        Computes L1 and L2 penalty across all linear layers.
-        Biases are excluded (standard practice).
- 
-        L1 penalty:  l1 * sum(|W|)
-        L2 penalty:  l2 * sum(W^2)
- 
-        Add the result on top of your prediction loss during training.
-        """
-        l1_penalty = 0.0
-        l2_penalty = 0.0
- 
-        for layer in self.layers:
-            if layer["type"] != "linear":
-                continue
- 
-            W = layer["W"]
-            l1_penalty += np.sum(np.abs(W))
-            l2_penalty += np.sum(W ** 2)
- 
-        return self.l1 * l1_penalty + self.l2 * l2_penalty
  
     def __repr__(self):
         lines = ["Parameter_init("]

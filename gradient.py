@@ -35,8 +35,9 @@ def compute_gradients(model, x, y):
             pre_activations.append(z)
             a = z
         elif layer["type"] == "relu":
+            alpha = layer.get("alpha", 0.01)
             pre_activations.append(a)
-            a = np.maximum(0, a)
+            a = np.where(a > 0, a, alpha * a)
         elif layer["type"] == "sigmoid":
             pre_activations.append(a)
             a = 1.0 / (1.0 + np.exp(-a))
@@ -64,8 +65,9 @@ def compute_gradients(model, x, y):
             pre_idx -= 1
 
         elif layer["type"] == "relu":
+            alpha = layer.get("alpha", 0.01)
             z = pre_activations[pre_idx]
-            da = da * (z > 0).astype(float)
+            da = da * np.where(z > 0, 1.0, alpha)
             act_idx -= 1
             pre_idx -= 1
 
