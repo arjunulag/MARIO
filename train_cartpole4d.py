@@ -24,14 +24,14 @@ def train(args):
         state_dim=12,
         action_dim=6,
         hidden=[128, 128],
-        lr=args.lr,
+        lr=args.lr,                      # reduced from 0.001 to 0.0001
         gamma=0.99,
         epsilon_start=1.0,
         epsilon_end=0.01,
         epsilon_decay=0.9995,
-        buffer_size=50_000,
+        buffer_size=100_000,             # increased from 50_000 to 100_000
         batch_size=64,
-        target_sync_every=500,
+        target_sync_every=1000,          # increased from 500 to 1000
     )
 
     renderer = None
@@ -139,7 +139,7 @@ def main():
     # -- train ---------------------------------------------------------
     t = sub.add_parser("train", help="Train the agent")
     t.add_argument("--episodes",          type=int,   default=2000)
-    t.add_argument("--lr",                type=float, default=0.001)
+    t.add_argument("--lr",                type=float, default=0.0001)   # reduced from 0.001
     t.add_argument("--render",            action="store_true")
     t.add_argument("--render-every",      type=int,   default=50)
     t.add_argument("--solve-threshold",   type=float, default=400.0)
@@ -155,8 +155,8 @@ def main():
         demo(args)
     else:
         if args.mode is None:
-            args.episodes        = 2000
-            args.lr              = 0.001
+            args.episodes        = 80000
+            args.lr              = 0.0001   # reduced from 0.001
             args.render          = False
             args.render_every    = 50
             args.solve_threshold = 400.0
