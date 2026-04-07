@@ -155,7 +155,7 @@ def main():
         demo(args)
     else:
         if args.mode is None:
-            args.episodes        = 80000
+            args.episodes        = 2500
             args.lr              = 0.0001   # reduced from 0.001
             args.render          = False
             args.render_every    = 50
