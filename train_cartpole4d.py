@@ -32,6 +32,7 @@ def train(args):
         buffer_size=100_000,             # increased from 50_000 to 100_000
         batch_size=64,
         target_sync_every=1000,          # increased from 500 to 1000
+        grad_clip=args.grad_clip,
     )
 
     renderer = None
@@ -143,6 +144,7 @@ def main():
     t.add_argument("--render",            action="store_true")
     t.add_argument("--render-every",      type=int,   default=50)
     t.add_argument("--solve-threshold",   type=float, default=400.0)
+    t.add_argument("--grad-clip",         type=float, default=1.0)
 
     # -- demo ----------------------------------------------------------
     d = sub.add_parser("demo", help="Run a trained agent with the renderer")
@@ -160,6 +162,7 @@ def main():
             args.render          = False
             args.render_every    = 50
             args.solve_threshold = 400.0
+            args.grad_clip       = 1.0
         train(args)
 
 
