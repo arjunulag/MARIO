@@ -14,8 +14,40 @@ Run:
 
 import argparse
 import numpy as np
+import matplotlib.pyplot as plt   # added import
+
 from cartpole4d_env import CartPole4DEnv
 from dqn_agent import DQNAgent
+
+
+# added
+def moving_average(values, window=100):
+    if len(values) == 0:
+        return np.array([])
+    return np.array([
+        np.mean(values[max(0, i - window + 1):i + 1])
+        for i in range(len(values))
+    ])
+
+
+# added (saves training graph)
+def save_training_plot(reward_history, plot_path="cartpole4d_training_curve.png"):
+    episodes = np.arange(1, len(reward_history) + 1)
+    avg_100_history = moving_average(reward_history, window=100)
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(episodes, reward_history, alpha=0.35, label="Episode reward")
+    plt.plot(episodes, avg_100_history, linewidth=2, label="Avg100 reward")
+    plt.xlabel("Episode")
+    plt.ylabel("Reward")
+    plt.title("CartPole4D Training Progress")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=150)
+    plt.close()
+
+    print(f"Saved training plot to {plot_path}")
 
 
 def train(args):
@@ -24,14 +56,14 @@ def train(args):
         state_dim=12,
         action_dim=6,
         hidden=[128, 128],
-        lr=args.lr,                      # reduced from 0.001 to 0.0001
+        lr=args.lr,
         gamma=0.99,
         epsilon_start=1.0,
         epsilon_end=0.01,
         epsilon_decay=0.9995,
-        buffer_size=100_000,             # increased from 50_000 to 100_000
+        buffer_size=100_000,
         batch_size=64,
-        target_sync_every=1000,          # increased from 500 to 1000
+        target_sync_every=1000,
         grad_clip=args.grad_clip,
     )
 
@@ -96,6 +128,9 @@ def train(args):
     if renderer:
         renderer.close()
 
+    # added (only new call)
+    save_training_plot(reward_history)
+
     print(f"\nBest episode reward: {best_reward:.1f}")
     print("Weights saved to best_cartpole4d.npy")
 
@@ -140,7 +175,7 @@ def main():
     # -- train ---------------------------------------------------------
     t = sub.add_parser("train", help="Train the agent")
     t.add_argument("--episodes",          type=int,   default=2000)
-    t.add_argument("--lr",                type=float, default=0.0001)   # reduced from 0.001
+    t.add_argument("--lr",                type=float, default=0.0001)
     t.add_argument("--render",            action="store_true")
     t.add_argument("--render-every",      type=int,   default=50)
     t.add_argument("--solve-threshold",   type=float, default=400.0)
@@ -157,8 +192,8 @@ def main():
         demo(args)
     else:
         if args.mode is None:
-            args.episodes        = 80000
-            args.lr              = 0.0001   # reduced from 0.001
+            args.episodes        = 2500
+            args.lr              = 0.0001
             args.render          = False
             args.render_every    = 50
             args.solve_threshold = 400.0
