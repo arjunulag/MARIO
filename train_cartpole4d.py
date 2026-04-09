@@ -144,6 +144,7 @@ def demo(args):
     agent.epsilon = 0.0
 
     renderer = CartPole4DRenderer(env)
+    user_closed = False  # ← track whether the user closed the window
 
     for ep in range(1, args.demo_episodes + 1):
         obs, _ = env.reset()
@@ -158,12 +159,15 @@ def demo(args):
             ep_reward += reward
 
             if not renderer.render(reward=reward):
-                renderer.close()
-                return
+                user_closed = True  # set flag, break inner loop
+                break
+
+        if user_closed:  # break outer loop too
+            break
 
         print(f"Demo episode {ep} | Reward {ep_reward:.1f}")
 
-    renderer.close()
+    renderer.close()  # always called exactly once, cleanly
 
 
 def main():
