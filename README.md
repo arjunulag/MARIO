@@ -1,51 +1,46 @@
-<p align="center">
-  <img src="https://upload.wikimedia.org/wikipedia/en/a/a9/MarioNSMBUDeluxe.png" alt="Mario" width="120">
-</p>
-
-<h1 align="center">Super Mario Bros AI Agent</h1>
+<h1 align="center">From-Scratch NumPy ML Library</h1>
 
 <p align="center">
-  <strong>A reinforcement learning agent that learns to beat Super Mario Bros using Proximal Policy Optimization</strong>
+  <strong>Neural networks, optimizers, and a DQN agent — built entirely on NumPy, no PyTorch or TensorFlow.</strong>
 </p>
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> &bull;
   <a href="#training">Training</a> &bull;
   <a href="#architecture">Architecture</a> &bull;
-  <a href="#results">Results</a> &bull;
-  <a href="#google-colab">Google Colab</a>
+  <a href="#project-structure">Project Structure</a>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/python-3.8%2B-blue?logo=python&logoColor=white" alt="Python">
-  <img src="https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch">
-  <img src="https://img.shields.io/badge/algorithm-PPO-green" alt="PPO">
-  <img src="https://img.shields.io/badge/env-gym--super--mario--bros-red" alt="Environment">
-  <img src="https://img.shields.io/badge/SB3-Stable%20Baselines%203-orange" alt="Stable Baselines 3">
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/NumPy-2.0%2B-013243?logo=numpy&logoColor=white" alt="NumPy">
+  <img src="https://img.shields.io/badge/algorithm-DQN-green" alt="DQN">
+  <img src="https://img.shields.io/badge/env-Gymnasium-red" alt="Gymnasium">
+  <img src="https://img.shields.io/badge/renderer-OpenGL-5586A4?logo=opengl&logoColor=white" alt="OpenGL">
 </p>
 
 ---
 
 ## Overview
 
-This project trains a deep reinforcement learning agent to play and beat **Super Mario Bros Level 1-1** from raw pixel input. The agent uses a convolutional neural network to process stacked game frames and outputs movement actions via PPO, a state-of-the-art policy gradient method.
+This repository implements the core pieces of a deep learning stack from the ground up using only NumPy: an MLP builder with manual forward passes, full backpropagation, four optimizers (SGD, Momentum, RMSProp, Adam), and a DQN reinforcement learning agent. Everything culminates in a **4D CartPole** environment — a cart that moves on three spatial axes (X, Z, W) with a pole that can tilt in three angular DOFs — rendered live via a dual-view OpenGL + pygame setup.
 
 **Highlights:**
 
-- Trains from scratch using only pixel observations (no hand-crafted features)
-- Reaches 80%+ level completion rate after ~5M timesteps
-- Multiple CNN architectures: Standard, Large, and Attention-based
-- Parallel environment training for 4-8x speedup
-- Best-run finder that evaluates 10,000 stochastic episodes and exports the fastest clear as MP4
-- Full Google Colab support for free GPU training
+- Neural networks built layer-by-layer from config dicts, weights stored as plain NumPy arrays
+- Manual backpropagation through linear + leaky ReLU / sigmoid layers (MSE loss)
+- Four interchangeable optimizers sharing the same `compute_gradients` interface
+- DQN agent with experience replay, epsilon-greedy, target network, and inline Adam with gradient clipping
+- 12-dim / 6-action 4D CartPole Gymnasium environment
+- 3D OpenGL renderer with a 2D side panel for the W axis
 
 ## Quick Start
 
 ### 1. Clone and set up
 
 ```bash
-git clone https://github.com/<your-username>/Super-Mario-Training.git
-cd Super-Mario-Training
+git clone https://github.com/arjunulag/MARIO.git
+cd MARIO
 
 python -m venv venv
 
@@ -58,248 +53,138 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Train
+### 2. Train the 4D CartPole DQN agent
 
 ```bash
-python train.py
+# Headless training
+python train_cartpole4d.py
+
+# Train with rendering every 50 episodes
+python train_cartpole4d.py train --render
 ```
 
-### 3. Watch it play
+### 3. Watch a trained agent
 
 ```bash
-python play.py ./checkpoints/best_model.zip
+python train_cartpole4d.py demo --weights best_cartpole4d.npy
 ```
 
 ## Training
 
-### Basic Usage
+### Commands
 
 ```bash
-# Default: 5M steps, 8 parallel envs
-python train.py
+# Default training run
+python train_cartpole4d.py
 
-# Quick test run
-python train.py --timesteps 100000
+# Explicit train subcommand with live rendering
+python train_cartpole4d.py train --render
 
-# Resume from checkpoint
-python train.py --resume ./checkpoints/mario_ppo_1000000_steps.zip
-
-# Force GPU
-python train.py --device cuda
+# Demo mode — load weights and play
+python train_cartpole4d.py demo --weights best_cartpole4d.npy
 ```
 
-### All Options
+### Key Hyperparameters
 
-| Flag | Default | Description |
+| Parameter | Value | Notes |
 |---|---|---|
-| `--timesteps` | `5000000` | Total training steps |
-| `--n-envs` | `8` | Parallel environments |
-| `--lr` | `2.5e-4` | Learning rate |
-| `--batch-size` | `256` | Minibatch size |
-| `--n-steps` | `512` | Steps per rollout |
-| `--n-epochs` | `4` | PPO update epochs |
-| `--gamma` | `0.99` | Discount factor |
-| `--gae-lambda` | `0.95` | GAE lambda |
-| `--clip-range` | `0.2` | PPO clipping range |
-| `--ent-coef` | `0.01` | Entropy bonus (exploration) |
-| `--model-type` | `standard` | Architecture: `standard`, `large`, `attention` |
-| `--device` | `auto` | `cuda`, `cpu`, or `auto` |
-| `--resume` | &mdash; | Checkpoint path to resume from |
+| Learning rate | `0.0001` | Reduced to prevent divergence |
+| Replay buffer | `100,000` | Sized up after divergence issues |
+| Target network sync | `1,000 steps` | Hard sync, not Polyak |
+| Activation | Leaky ReLU (α=0.01) | Forward and backward must match α |
+| Optimizer (DQN) | Inline Adam + grad clipping | Not the epoch-based `adam.py` |
+| Loss | MSE | See `mse_vector.py` |
 
-### Monitor with TensorBoard
+### Tests
 
 ```bash
-tensorboard --logdir ./logs
-```
+# Full suite
+python -m pytest tests/
 
-Open [http://localhost:6006](http://localhost:6006) to view training curves including reward, episode length, x-position, and level completions.
-
-## Evaluation
-
-### Watch the Agent
-
-```bash
-# Play 5 episodes
-python play.py ./checkpoints/best_model.zip
-
-# Slower playback
-python play.py ./checkpoints/best_model.zip --episodes 10 --fps 20
-
-# Record MP4
-python play.py ./checkpoints/best_model.zip --record
-```
-
-### Benchmark (Headless)
-
-```bash
-python play.py ./checkpoints/best_model.zip --benchmark --benchmark-episodes 100
-```
-
-### Find the Best Run
-
-Run 10,000 stochastic episodes and automatically save the fastest level completion as an MP4:
-
-```bash
-python best_run.py
-
-# With live rendering
-python best_run_visual.py
-
-# Custom options
-python best_run.py --episodes 5000 --model ./checkpoints/my_model --fps 15
-```
-
-### Train and Watch
-
-Combines training with periodic visual evaluation. Tracks the fastest clear and saves it when done:
-
-```bash
-python train_and_watch.py
-python train_and_watch.py --timesteps 2000000 --eval-episodes 20
+# Single file
+python -m pytest tests/test_parameter_init.py
 ```
 
 ## Architecture
 
-### Observation Pipeline
+### Neural Network Core
 
-Raw 240x256 RGB frames go through a preprocessing pipeline before reaching the network:
+Built in `functions.py`, `gradient.py`, and `mse_vector.py` — no external ML libraries.
 
-```
-Raw Frame (240×256×3 RGB)
-  → Frame Skip (repeat action for 4 frames)
-  → Reward Shaping (progress bonus, death penalty)
-  → Grayscale (240×256×1)
-  → Resize (84×84×1)
-  → Frame Stack (84×84×4)
-  → Normalize (pixel values → [0, 1])
-```
-
-### CNN Models
-
-| Model | Description | Use Case |
-|---|---|---|
-| **Standard** | Nature DQN-style: 3 conv layers → 512-d FC | Default, good speed/performance balance |
-| **Large** | 4 conv layers + batch norm + dropout → 1024 → 512 FC | Long training runs, harder levels |
-| **Attention** | 3 conv layers + spatial attention gate → 512-d FC | Experimental, focuses on enemies/gaps |
-
-All models feed into shared policy (256→256) and value (256→256) heads.
-
-### Action Space
-
-The agent chooses from 7 simplified actions each step:
-
-| Index | Action |
+| Module | Purpose |
 |---|---|
-| 0 | No-op |
-| 1 | Right |
-| 2 | Right + Jump |
-| 3 | Right + Run |
-| 4 | Right + Jump + Run |
-| 5 | Jump |
-| 6 | Left |
+| `functions.py` | `Parameter_init` builds an MLP from a list of dicts (`{"type": "linear", "in": N, "out": M}` / `{"type": "relu"}` / `{"type": "sigmoid"}`). Uses He init for relu, Xavier for sigmoid. |
+| `gradient.py` | `compute_gradients(model, x, y)` — manual backprop, returns grads aligned with `model.layers` plus loss. |
+| `mse_vector.py` | MSE loss and derivative, supports 1D and batched 2D inputs. |
 
-### Reward Function
+### Optimizers
 
-| Component | Value | Purpose |
-|---|---|---|
-| Base game reward | varies | Coins, score, enemies |
-| Forward progress | +0.1 / pixel | Encourage rightward movement |
-| Flag reached | +100 | Level completion bonus |
-| Death | −50 | Penalize losing a life |
+All optimizers consume gradients from `compute_gradients` and apply updates in-place on the layer dicts.
 
-## Results
+| File | Algorithm |
+|---|---|
+| `gradient_descent.py` | Vanilla SGD |
+| `momentum.py` | SGD with momentum |
+| `rmsprop.py` | RMSProp |
+| `adam.py` | Adam |
 
-Expected performance with default hyperparameters:
+### DQN Reinforcement Learning
 
-| Timesteps | Behavior | Approx. X-Position |
-|---|---|---|
-| 500K | Learns basic movement | ~500 |
-| 1M | Clears first obstacles | ~1000 |
-| 2M | Reaches mid-level consistently | ~2000 |
-| 3M | Starts completing the level (~50%) | ~3200+ |
-| 5M+ | Consistent completions (80%+) | Flag |
+| File | Role |
+|---|---|
+| `dqn_agent.py` | `DQNAgent` — experience replay, ε-greedy, target network, inline Adam with gradient clipping. Both Q-network and target network are `Parameter_init` MLPs. |
+| `cartpole4d_env.py` | `CartPole4DEnv` Gymnasium environment: 12-dim state, 6 discrete actions (±push on X, Z, W). |
+| `train_cartpole4d.py` | CLI training harness with `train` / `demo` subcommands. |
 
-## Google Colab
+### Rendering
 
-A ready-to-run notebook is included for training on a free GPU:
+| File | Purpose |
+|---|---|
+| `cartpole3d_renderer.py` | 3D OpenGL scene for the X/Y/Z dimensions |
+| `cartpole4d_renderer.py` | Adds a 2D side panel visualising the W axis |
 
-1. Upload `Mario_Training_Colab.ipynb` to [Google Colab](https://colab.research.google.com/)
-2. Set runtime to **GPU** (`Runtime → Change runtime type → GPU`)
-3. Run all cells &mdash; training takes roughly 1 hour for a level-beating agent
+### 4D CartPole Environment
 
-The Colab notebook handles all dependency installation automatically.
+The cart lives in 4D space but is rendered as a 3D scene plus a 2D strip:
+
+- **State (12-dim):** positions and velocities along X/Z/W plus pole angles and angular velocities
+- **Actions (6 discrete):** positive or negative push along each of the three spatial axes
+- **Reward:** standard CartPole-style — survive longer, score higher
 
 ## Project Structure
 
 ```
-Super Mario Training/
-├── train.py                 # Main training script (PPO + callbacks)
-├── play.py                  # Watch or benchmark a trained agent
-├── model.py                 # CNN architectures (Standard, Large, Attention)
-├── wrappers.py              # Env preprocessing (frame stack, grayscale, rewards)
-├── best_run.py              # Find fastest clear over 10K stochastic runs → MP4
-├── best_run_visual.py       # Same as above with live rendering
-├── train_and_watch.py       # Train with periodic visual evaluation
-├── colab_setup.py           # Dependency installer for Google Colab
-├── Mario_Training_Colab.ipynb  # Colab notebook
-├── requirements.txt         # Python dependencies
-├── checkpoints/             # Saved model weights (created during training)
-├── logs/                    # TensorBoard logs (created during training)
-└── recordings/              # Exported gameplay videos
+MARIO/
+├── functions.py                 # Parameter_init: MLP builder, forward pass
+├── gradient.py                  # compute_gradients: manual backprop
+├── mse_vector.py                # MSE loss + derivative
+├── gradient_descent.py          # Vanilla SGD
+├── momentum.py                  # SGD with momentum
+├── rmsprop.py                   # RMSProp
+├── adam.py                      # Adam optimizer
+├── dqn_agent.py                 # DQN agent (replay, target net, inline Adam)
+├── cartpole4d_env.py            # 4D CartPole Gymnasium environment
+├── cartpole3d_env.py            # 3D CartPole environment
+├── cartpole3d_renderer.py       # OpenGL renderer (3D scene)
+├── cartpole4d_renderer.py       # OpenGL renderer with W-axis panel
+├── train_cartpole4d.py          # Training CLI (train / demo subcommands)
+├── demo.py                      # Plays a trained agent from saved weights
+├── hyperparam_search.py         # Hyperparameter sweep helper
+├── linear_regression.py         # Linear regression example
+├── housing_predict.py           # Boston Housing regression example
+├── Housing.csv                  # Housing dataset
+├── requirements.txt             # NumPy, Gymnasium, pygame, PyOpenGL
+├── tests/                       # pytest suite
+└── CLAUDE.md                    # Guidance for Claude Code
 ```
 
-## Troubleshooting
+## Design Notes
 
-<details>
-<summary><strong>NumPy 2.0 compatibility error</strong></summary>
-
-`nes-py` requires NumPy < 2.0. Downgrade with:
-
-```bash
-pip install "numpy>=1.24.0,<2.0.0"
-```
-
-</details>
-
-<details>
-<summary><strong>Out of memory</strong></summary>
-
-Reduce the number of parallel environments:
-
-```bash
-python train.py --n-envs 4
-```
-
-</details>
-
-<details>
-<summary><strong>Agent not learning</strong></summary>
-
-Try increasing exploration or lowering the learning rate:
-
-```bash
-python train.py --ent-coef 0.02 --lr 1e-4
-```
-
-</details>
-
-<details>
-<summary><strong>Slow training on CPU</strong></summary>
-
-Use a GPU if available, or reduce environment count:
-
-```bash
-python train.py --device cuda
-```
-
-</details>
-
-## References
-
-- Schulman et al. &mdash; [Proximal Policy Optimization Algorithms](https://arxiv.org/abs/1707.06347) (2017)
-- [gym-super-mario-bros](https://github.com/Kautenja/gym-super-mario-bros) &mdash; OpenAI Gym environment
-- [Stable Baselines 3](https://stable-baselines3.readthedocs.io/) &mdash; RL algorithm implementations
+- **Leaky ReLU α = 0.01** is the default activation. The backward pass in `gradient.py` must use the same α as the forward pass — a prior bug was caused by an α mismatch.
+- **DQN uses its own inline Adam** (not `adam.py`) because it needs per-step updates with gradient clipping, not epoch-based training.
+- **Weights** are saved and loaded as `.npy` files with `allow_pickle=True`.
+- Tuning history: the original hyperparameters diverged. Fix: lower LR to 1e-4, grow replay buffer to 100k, raise target sync to 1000 steps.
 
 ## License
 
-This project is for educational purposes. Super Mario Bros is a trademark of Nintendo.
+See [LICENSE](LICENSE).

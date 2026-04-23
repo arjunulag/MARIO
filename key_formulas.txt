@@ -1,0 +1,326 @@
+================================================================================
+           KEY FORMULAS IN THE FROM-SCRATCH DQN TRAINING PIPELINE
+================================================================================
+
+This document walks through every mathematical formula used in the codebase,
+from the forward pass through the neural network, to the loss function, the
+backward pass (backpropagation), and the DQN reinforcement learning loop.
+
+Files referenced: functions.py, gradient.py, mse_vector.py, dqn_agent.py
+
+
+================================================================================
+1. FORWARD PASS  (functions.py, gradient.py)
+================================================================================
+
+The neural network is a Multi-Layer Perceptron (MLP). Data flows through a
+sequence of linear layers and activation functions.
+
+1a. LINEAR LAYER
+----------------
+    z = x @ W + b
+
+    x : input matrix         (N x in_features)
+    W : weight matrix         (in_features x out_features)
+    b : bias vector           (out_features,)
+    z : pre-activation output (N x out_features)
+
+    "@" is matrix multiplication. Each row of x gets multiplied by W, then
+    the bias b is added. This is the learnable transformation -- W and b are
+    the parameters the network trains.
+
+1b. LEAKY RELU ACTIVATION  (default, alpha = 0.01)
+---------------------------------------------------
+    LeakyReLU(z) = z          if z > 0
+                   alpha * z  if z <= 0
+
+    Unlike standard ReLU (which outputs 0 for negative inputs), Leaky ReLU
+    lets a small gradient (alpha = 0.01) flow through for negative values.
+    This prevents "dead neurons" -- neurons that stop learning because their
+    gradient is always zero.
+
+1c. SIGMOID ACTIVATION
+-----------------------
+    sigmoid(z) = 1 / (1 + exp(-z))
+
+    Squashes any input into the range (0, 1). Used less often in this project
+    (the DQN uses Leaky ReLU), but supported. The code clips z to [-500, 500]
+    to prevent floating-point overflow.
+
+1d. WEIGHT INITIALIZATION
+--------------------------
+    He initialization (for ReLU/Leaky ReLU layers):
+        W ~ Normal(0, std),  where std = sqrt(2 / fan_in)
+
+    Xavier initialization (for sigmoid layers):
+        W ~ Normal(0, std),  where std = sqrt(1 / fan_in)
+
+    fan_in = number of input features to the layer.
+
+    Why: if weights start too large, activations explode; too small, they
+    vanish. He init accounts for the fact that ReLU zeroes out ~half the
+    values (hence the factor of 2). Xavier assumes roughly symmetric
+    activation (like sigmoid).
+
+
+================================================================================
+2. LOSS FUNCTION — MEAN SQUARED ERROR  (mse_vector.py)
+================================================================================
+
+2a. MSE LOSS
+------------
+    For a single sample (1D, d outputs):
+        L = (1/d) * sum( (y_hat_i - y_i)^2 )
+
+    For a batch (2D, N samples, d outputs each):
+        L = (1/(N*d)) * sum_over_all_elements( (y_hat - y)^2 )
+
+    y_hat : the network's predictions
+    y     : the target values
+    L     : a single scalar measuring how wrong the predictions are
+
+    MSE penalizes large errors quadratically -- an error of 2 is punished
+    4x more than an error of 1.
+
+2b. MSE DERIVATIVE (gradient of loss w.r.t. predictions)
+---------------------------------------------------------
+    For a single sample:
+        dL/dy_hat = (2/d) * (y_hat - y)
+
+    For a batch:
+        dL/dy_hat = (2/(N*d)) * (y_hat - y)
+
+    This is the starting point of backpropagation -- it tells us how changing
+    each prediction would change the loss. The gradient points in the direction
+    of increasing loss, so we'll move parameters in the opposite direction.
+
+
+================================================================================
+3. BACKPROPAGATION  (gradient.py)
+================================================================================
+
+Backpropagation computes dL/dW and dL/db for every linear layer by applying
+the chain rule backwards through the network.
+
+"da" below represents dL/da -- how the loss changes w.r.t. the activation
+at each point in the network. It starts as the MSE derivative at the output
+and propagates backward.
+
+3a. BACKWARD THROUGH LEAKY RELU
+---------------------------------
+    da_input = da_output * LeakyReLU'(z)
+
+    where LeakyReLU'(z) = 1      if z > 0
+                           alpha  if z <= 0
+
+    This is element-wise multiplication. If the neuron was "on" (z > 0),
+    the gradient passes through unchanged. If "off" (z <= 0), the gradient
+    is scaled by alpha (0.01).
+
+3b. BACKWARD THROUGH SIGMOID
+------------------------------
+    da_input = da_output * sigmoid(z) * (1 - sigmoid(z))
+
+    The sigmoid derivative is at most 0.25 (when z = 0), which is why deep
+    sigmoid networks suffer from vanishing gradients.
+
+3c. BACKWARD THROUGH LINEAR LAYER
+-----------------------------------
+    dW = a_prev^T @ da       (gradient for weights)
+    db = sum(da, axis=0)     (gradient for biases)
+    da_prev = da @ W^T       (gradient to pass to previous layer)
+
+    Where:
+        a_prev : the input to this layer (the previous layer's output)
+        da     : the gradient flowing in from above
+        W      : this layer's weight matrix
+
+    Intuition:
+    - dW: "how much did each weight contribute to the error?" This is the
+      outer product of the input activations and the error signal.
+    - db: the bias gradient is just the sum of the error signal across the
+      batch (bias shifts output regardless of input).
+    - da_prev: "how much did each input contribute to the error?" This
+      propagates the error backward through the weights.
+
+
+================================================================================
+4. DQN REINFORCEMENT LEARNING  (dqn_agent.py)
+================================================================================
+
+DQN (Deep Q-Network) learns to estimate Q(s, a) -- the expected future reward
+for taking action "a" in state "s", then acting optimally afterwards.
+
+4a. Q-VALUE / BELLMAN EQUATION (the core RL idea)
+--------------------------------------------------
+    Q*(s, a) = r + gamma * max_a'[ Q*(s', a') ]
+
+    Q*(s,a) : optimal Q-value for state s, action a
+    r       : immediate reward received
+    gamma   : discount factor (0.99) -- how much to value future rewards
+    s'      : the next state after taking action a
+    max_a'  : the best action available in the next state
+
+    This says: the value of an action = immediate reward + discounted value
+    of the best thing you can do next. The network learns to approximate Q*.
+
+4b. TD TARGET (Temporal Difference target)
+-------------------------------------------
+    td_target = r + gamma * max_a'[ Q_target(s', a') ] * (1 - done)
+
+    Q_target : a separate "target network" (a delayed copy of the Q-network)
+    done     : 1 if the episode ended, 0 otherwise
+
+    When done=1, there is no future, so td_target = r (no next-state value).
+    The target network is used instead of the live Q-network to stabilize
+    training -- without it, the targets shift every update, causing divergence.
+
+4c. TRAINING OBJECTIVE
+-----------------------
+    Only the Q-value for the action actually taken gets updated:
+
+        targets = Q_net(s).copy()           (copy all Q-values)
+        targets[action_taken] = td_target   (overwrite only the chosen action)
+
+    Loss = MSE( Q_net(s), targets )
+
+    Because all non-selected actions have target = prediction, their gradient
+    is zero. Only the taken action's Q-value gets pushed toward the TD target.
+
+4d. EPSILON-GREEDY EXPLORATION
+-------------------------------
+    With probability epsilon:  pick a random action   (explore)
+    With probability 1-epsilon: pick argmax Q(s, a)   (exploit)
+
+    Epsilon decays each training step:
+        epsilon = max(epsilon_end, epsilon * epsilon_decay)
+
+    epsilon_start = 1.0   (100% random at the beginning)
+    epsilon_end   = 0.01  (1% random at convergence)
+    epsilon_decay = 0.9995 (slow multiplicative decay)
+
+    Early in training, the agent explores randomly to discover what works.
+    Over time, it shifts to exploiting what it has learned.
+
+4e. EXPERIENCE REPLAY
+-----------------------
+    Transitions (s, a, r, s', done) are stored in a circular buffer.
+    Each training step, a random mini-batch of 64 transitions is sampled.
+
+    Why: without replay, the agent trains on consecutive, highly correlated
+    samples (state t, then state t+1, etc.). This correlation breaks the
+    i.i.d. assumption of SGD and causes instability. Random sampling from
+    a large buffer decorrelates the training data.
+
+4f. TARGET NETWORK SYNC
+-------------------------
+    Every 1000 training steps:
+        Q_target = copy(Q_net)
+
+    This is a "hard sync" -- the target network's weights are fully replaced.
+    Between syncs, the target network is frozen, providing stable TD targets.
+
+
+================================================================================
+5. ADAM OPTIMIZER  (dqn_agent.py, inline implementation)
+================================================================================
+
+Adam combines two ideas: momentum (track the running average of gradients)
+and RMSProp (track the running average of squared gradients).
+
+5a. GRADIENT CLIPPING (applied before Adam)
+---------------------------------------------
+    dW = clip(dW, -grad_clip, +grad_clip)
+    db = clip(db, -grad_clip, +grad_clip)
+
+    grad_clip = 1.0 (element-wise clamp)
+
+    Prevents exploding gradients from causing catastrophically large weight
+    updates. Any gradient value outside [-1, 1] is clamped to the boundary.
+
+5b. FIRST MOMENT (mean of gradients, i.e., momentum)
+------------------------------------------------------
+    m = beta1 * m + (1 - beta1) * g
+
+    beta1 = 0.9
+    g     = the current gradient (dW or db)
+    m     = exponential moving average of gradients
+
+    This smooths out the gradient over time. Instead of reacting to every
+    noisy gradient, Adam follows the general trend.
+
+5c. SECOND MOMENT (mean of squared gradients)
+-----------------------------------------------
+    v = beta2 * v + (1 - beta2) * g^2
+
+    beta2 = 0.999
+    v     = exponential moving average of squared gradients
+
+    This tracks the magnitude of recent gradients per-parameter. Parameters
+    with consistently large gradients get smaller effective learning rates
+    (adaptive learning rate).
+
+5d. BIAS CORRECTION
+---------------------
+    m_hat = m / (1 - beta1^t)
+    v_hat = v / (1 - beta2^t)
+
+    t = training step number (1, 2, 3, ...)
+
+    At the start of training, m and v are initialized to 0 and are biased
+    toward zero. Dividing by (1 - beta^t) corrects this. As t grows large,
+    the correction factor approaches 1 and has no effect.
+
+5e. PARAMETER UPDATE
+---------------------
+    W = W - lr * m_hat / (sqrt(v_hat) + eps)
+
+    lr  = 0.0001 (learning rate)
+    eps = 1e-8   (prevents division by zero)
+
+    The update direction comes from m_hat (smoothed gradient).
+    The step size is scaled by 1/sqrt(v_hat) -- parameters with large recent
+    gradients get smaller steps, and vice versa. This adaptive scaling is
+    what makes Adam work well without careful learning rate tuning.
+
+
+================================================================================
+6. PUTTING IT ALL TOGETHER — ONE TRAINING STEP
+================================================================================
+
+    1. Agent observes state s, picks action via epsilon-greedy
+    2. Environment returns reward r, next state s', and done flag
+    3. Store (s, a, r, s', done) in replay buffer
+    4. Sample random mini-batch of 64 transitions from buffer
+    5. Compute TD targets:
+         td = r + 0.99 * max Q_target(s') * (1 - done)
+    6. Build target matrix (only update the taken action's Q-value)
+    7. Forward pass Q_net(s) to get predictions
+    8. Compute MSE loss between predictions and targets
+    9. Backpropagate to get gradients dW, db for each layer
+   10. Clip gradients to [-1, 1]
+   11. Update weights using Adam optimizer
+   12. Every 1000 steps, sync target network
+   13. Decay epsilon: epsilon *= 0.9995
+
+    Repeat for 80,000 episodes (or until convergence).
+
+
+================================================================================
+7. ENVIRONMENT — CARTPOLE 4D  (cartpole4d_env.py)
+================================================================================
+
+    State: 12-dimensional vector
+        [x, z, w, x_dot, z_dot, w_dot, theta1, theta2, theta3,
+         theta1_dot, theta2_dot, theta3_dot]
+
+    Actions: 6 discrete actions
+        Push cart in +/- direction along X, Z, and W axes
+
+    Reward: +1 for every timestep the pole stays balanced
+
+    The agent must learn to balance a pole that can tilt in 3 angular
+    degrees of freedom, on a cart that moves in 3 spatial dimensions.
+    This is significantly harder than classic 2D CartPole.
+
+================================================================================
