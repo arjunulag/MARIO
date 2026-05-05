@@ -1,0 +1,19 @@
+{
+  "name": "Sample Ghost (JSON template)",
+  "description": "This file is the format the website expects when the RL agent's trajectory is dropped in. The active sample ghost on play.html is the in-code scripted policy in js/ghost.js — swap to this JSON via main.js to test playback.",
+  "level": "1-1",
+  "fps": 60,
+  "inputs": [
+    { "frame": 0,   "duration": 9999, "keys": ["right"] },
+    { "frame": 0,   "duration": 9999, "keys": ["sprint"] },
+
+    { "frame": 70,  "duration": 14, "keys": ["jump"] },
+    { "frame": 134, "duration": 14, "keys": ["jump"] },
+    { "frame": 188, "duration": 12, "keys": ["jump"] },
+    { "frame": 308, "duration": 14, "keys": ["jump"] },
+
+    { "frame": 102, "duration": 8,  "keys": ["jump"] },
+    { "frame": 232, "duration": 8,  "keys": ["jump"] },
+    { "frame": 358, "duration": 8,  "keys": ["jump"] }
+  ]
+}

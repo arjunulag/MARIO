@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Play — MARIO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+<nav class="nav">
+  <a class="brand" href="index.html">
+    <span class="brand-mark">M</span>
+    MARIO<span style="color: var(--text-muted); font-weight: 500; margin-left: 6px;">/ RL</span>
+  </a>
+  <div class="nav-links">
+    <a class="nav-link" href="index.html">Home</a>
+    <a class="nav-link active" href="play.html">Play</a>
+    <a class="nav-link" href="about.html">About</a>
+    <a class="nav-link" href="https://github.com/arjunulag/MARIO" target="_blank" rel="noopener">GitHub</a>
+  </div>
+</nav>
+
+<div class="play-shell">
+  <div class="play-header">
+    <h1 class="play-title">
+      Stage 1-1<span class="small">Race the shadow ghost to the flag</span>
+    </h1>
+
+    <div class="play-toolbar">
+      <label class="toggle">
+        <input type="checkbox" id="ghost-toggle" checked />
+        Ghost on
+      </label>
+      <button class="btn btn-ghost" id="pause-btn">
+        <span id="pause-label">Pause</span>
+      </button>
+      <button class="btn btn-primary" id="restart-btn">
+        Restart
+      </button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="canvas-wrap">
+      <canvas id="game" width="768" height="448"></canvas>
+
+      <div class="hud">
+        <div class="hud-block">
+          <div class="hud-stat">
+            <span class="lbl">Time</span>
+            <span class="val" id="hud-time">0.00</span>
+          </div>
+          <div class="hud-stat">
+            <span class="lbl">Coins</span>
+            <span class="val gold" id="hud-coins">0</span>
+          </div>
+          <div class="hud-stat">
+            <span class="lbl">Score</span>
+            <span class="val" id="hud-score">0</span>
+          </div>
+        </div>
+        <div class="hud-block">
+          <div class="hud-stat">
+            <span class="lbl">Vs Ghost</span>
+            <span class="val" id="hud-diff">+0</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="overlay" id="overlay">
+        <div class="overlay-card">
+          <h2 id="overlay-title">You win!</h2>
+          <p class="result-line" id="overlay-line">You reached the flag.</p>
+          <div class="result-stats">
+            <span>Time<strong id="overlay-time">0.00s</strong></span>
+            <span>Coins<strong id="overlay-coins">0</strong></span>
+            <span>Result<strong id="overlay-result">—</strong></span>
+          </div>
+          <button class="btn btn-primary" id="overlay-restart">Play again</button>
+        </div>
+      </div>
+    </div>
+
+    <aside class="sidebar">
+      <div class="panel">
+        <h3>Controls</h3>
+        <div class="mini-controls">
+          <div class="mini-row">
+            <span>Move</span>
+            <span class="keys">
+              <span class="kbd">&larr;</span><span class="kbd">&rarr;</span>
+            </span>
+          </div>
+          <div class="mini-row">
+            <span>Jump</span>
+            <span class="keys"><span class="kbd">Space</span></span>
+          </div>
+          <div class="mini-row">
+            <span>Sprint</span>
+            <span class="keys"><span class="kbd">Shift</span></span>
+          </div>
+          <div class="mini-row">
+            <span>Restart</span>
+            <span class="keys"><span class="kbd">R</span></span>
+          </div>
+          <div class="mini-row">
+            <span>Toggle ghost</span>
+            <span class="keys"><span class="kbd">G</span></span>
+          </div>
+          <div class="mini-row">
+            <span>Pause</span>
+            <span class="keys"><span class="kbd">P</span></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Legend</h3>
+        <div class="legend-row">
+          <span class="swatch" style="background: #e63946;"></span>
+          <span>You — controlled by the keyboard</span>
+        </div>
+        <div class="legend-row">
+          <span class="swatch" style="background: rgba(6, 214, 160, 0.55); border-color: var(--green);"></span>
+          <span>Ghost — runs the level alongside you</span>
+        </div>
+        <div class="legend-row">
+          <span class="swatch" style="background: #ffd166;"></span>
+          <span>Coin — +200 score</span>
+        </div>
+        <div class="legend-row">
+          <span class="swatch" style="background: #8b4513;"></span>
+          <span>Goomba — stomp from above</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Ghost</h3>
+        <div class="ghost-meta" id="ghost-meta">
+          <strong>Loading…</strong>
+          Trajectory information loads with the level.
+        </div>
+        <span class="ghost-status" id="ghost-status">Active</span>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<footer class="footer">
+  <div>
+    Tip: hold <span class="kbd" style="font-size: 11px;">Shift</span> to sprint &mdash; you'll need it for the longer pits.
+  </div>
+</footer>
+
+<script src="js/game.js"></script>
+<script src="js/ghost.js"></script>
+<script src="js/main.js"></script>
+
+</body>
+</html>
