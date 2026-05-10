@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Super Mario Web Race</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="top-bar">
+        <div>
+          <p class="eyebrow">Mario AI Race</p>
+          <h1>Super Mario Web Race</h1>
+        </div>
+      </header>
+
+      <section class="dashboard">
+        <section class="card controls-card">
+          <div class="card-title">Level</div>
+          <div class="control-row">
+            <label>
+              World
+              <select id="worldSelect">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+              </select>
+            </label>
+
+            <label>
+              Stage
+              <select id="stageSelect">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+              </select>
+            </label>
+
+            <label>
+              Version
+              <select id="versionSelect">
+                <option value="0">v0</option>
+                <option value="1">v1</option>
+                <option value="2">v2</option>
+                <option value="3">v3</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="button-row">
+            <button id="startBtn" class="primary-btn">Start Level</button>
+            <button id="pauseBtn">Pause</button>
+            <button id="resetBtn">Reset</button>
+          </div>
+        </section>
+
+        <section class="card info-card">
+          <div class="card-title">Movement</div>
+          <p class="movement-line">Arrow keys / WASD = move</p>
+          <p class="movement-line">Space / Z / J = jump</p>
+          <p class="movement-line">Shift / X / K = run</p>
+          <p id="status" class="status-text">Choose a level and click Start Level.</p>
+        </section>
+
+        <section class="card debug-card">
+          <div class="card-title">Run Info</div>
+          <pre id="debug"></pre>
+        </section>
+      </section>
+
+      <section class="game-card">
+        <div class="screen-bezel">
+          <canvas id="gameCanvas" width="256" height="240"></canvas>
+        </div>
+
+        <section class="timer-panel floating-timer" aria-label="Speedrun timer">
+          <div>
+            <span class="timer-label">Time</span>
+            <span id="runTimer" class="timer-value">00:00.000</span>
+          </div>
+          <div>
+            <span class="timer-label">Best</span>
+            <span id="bestTimer" class="timer-value small">--:--.---</span>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
