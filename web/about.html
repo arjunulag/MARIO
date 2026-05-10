@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About — MARIO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+<nav class="nav">
+  <a class="brand" href="index.html">
+    <span class="brand-mark">M</span>
+    MARIO<span style="color: var(--text-muted); font-weight: 500; margin-left: 6px;">/ RL</span>
+  </a>
+  <div class="nav-links">
+    <a class="nav-link" href="index.html">Home</a>
+    <a class="nav-link" href="play.html">Play</a>
+    <a class="nav-link active" href="about.html">About</a>
+    <a class="nav-link" href="https://github.com/arjunulag/MARIO" target="_blank" rel="noopener">GitHub</a>
+  </div>
+</nav>
+
+<section class="section">
+  <div class="prose">
+    <h2>About this project</h2>
+    <p>
+      MARIO is a from-scratch deep learning project. The underlying library
+      is built entirely on NumPy — no PyTorch, no TensorFlow — and includes
+      a multilayer perceptron builder, manual backpropagation, four
+      optimizers, and a Deep Q-Network agent.
+    </p>
+    <p>
+      This site is the playable face of that project. It's a custom
+      side-scrolling platformer running in pure HTML5 canvas, paired with a
+      ghost replay system. The goal is straightforward: race a learning
+      agent through the same level, frame for frame, and watch it improve
+      over time.
+    </p>
+
+    <h2>Why a ghost?</h2>
+    <p>
+      In a racing game, a ghost is a translucent recording of a previous run.
+      You race against the recording, not the original player. It's the
+      cleanest way to compare two policies: same level, same physics, same
+      starting state — just different inputs.
+    </p>
+    <p>
+      For an RL agent, the ghost is a natural way to make training visible.
+      Instead of staring at a reward curve, you race the model. Early ghosts
+      stand still or fall in pits. Later ghosts beat you to the flag.
+    </p>
+
+    <h2>How the ghost is wired</h2>
+    <p>
+      The ghost loads a trajectory from <code>data/ghost_sample.json</code>.
+      Each entry in the trajectory is a frame index plus the set of "buttons"
+      that were held that frame. The ghost runs through the same physics
+      engine as the player using those inputs — so the ghost is genuinely
+      playing the level, not playing back coordinates.
+    </p>
+    <p>
+      To swap in a real RL trajectory, we record the agent's chosen action
+      each frame during a successful episode, write those actions out as
+      JSON in this same format, and drop the file into <code>data/</code>.
+      The website doesn't need to change.
+    </p>
+
+    <h3>Trajectory format</h3>
+    <pre><code>{
+  "name": "DQN agent — episode 41,820",
+  "description": "Best run from training session #7",
+  "level": "1-1",
+  "fps": 60,
+  "inputs": [
+    { "frame": 0,   "duration": 9999, "keys": ["right"] },
+    { "frame": 0,   "duration": 9999, "keys": ["sprint"] },
+    { "frame": 64,  "duration": 14,   "keys": ["jump"] },
+    { "frame": 132, "duration": 18,   "keys": ["jump"] }
+  ]
+}</code></pre>
+
+    <h2>The underlying ML stack</h2>
+    <p>
+      The repo behind this site implements a small but complete deep learning
+      stack on NumPy:
+    </p>
+    <ul>
+      <li><strong>Neural networks</strong> — MLPs built from a config of
+        linear and activation layers. He init for ReLU, Xavier for sigmoid.</li>
+      <li><strong>Backpropagation</strong> — manual gradient computation
+        through the layer list, with MSE loss.</li>
+      <li><strong>Optimizers</strong> — vanilla SGD, momentum, RMSProp,
+        and Adam, all sharing one gradient interface.</li>
+      <li><strong>DQN</strong> — experience replay, ε-greedy exploration,
+        a target network with periodic hard sync, and inline Adam with
+        gradient clipping.</li>
+    </ul>
+
+    <h2>Credits</h2>
+    <p>
+      Built and maintained by Arjun Ulag. Source is on
+      <a href="https://github.com/arjunulag/MARIO" target="_blank" rel="noopener">GitHub</a>.
+      The in-browser game is a custom implementation — it is not the
+      original Super Mario Bros and ships no Nintendo assets.
+    </p>
+  </div>
+</section>
+
+<footer class="footer">
+  <div>
+    <a href="index.html">Home</a> &middot;
+    <a href="play.html">Play</a> &middot;
+    <a href="https://github.com/arjunulag/MARIO" target="_blank" rel="noopener">GitHub</a>
+  </div>
+</footer>
+
+</body>
+</html>
