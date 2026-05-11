@@ -13,6 +13,10 @@ Run:
 """
 
 import argparse
+import csv
+import time
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt   # added import
 
@@ -75,6 +79,12 @@ def train(args):
     best_reward   = -float("inf")
     reward_history = []
 
+    # Per-episode CSV log, line-buffered so dashboard.py can tail it live.
+    log_path = Path(args.log_file)
+    log_f = open(log_path, "w", newline="", buffering=1)
+    log_w = csv.writer(log_f)
+    log_w.writerow(["episode", "reward", "avg100", "steps", "epsilon", "loss", "timestamp"])
+
     for ep in range(1, args.episodes + 1):
         obs, _ = env.reset()
         ep_reward = 0.0
@@ -119,12 +129,14 @@ def train(args):
             f"ε {agent.epsilon:.4f} | "
             f"Loss {avg_loss:.6f}"
         )
+        log_w.writerow([ep, ep_reward, avg_100, info["step"], agent.epsilon, avg_loss, time.time()])
 
         if avg_100 >= args.solve_threshold and ep >= 100:
             print(f"\nSolved at episode {ep}  (avg100 = {avg_100:.1f})")
             agent.save("solved_cartpole4d.npy")
             break
 
+    log_f.close()
     if renderer:
         renderer.close()
 
@@ -184,6 +196,7 @@ def main():
     t.add_argument("--render-every",      type=int,   default=50)
     t.add_argument("--solve-threshold",   type=float, default=400.0)
     t.add_argument("--grad-clip",         type=float, default=1.0)
+    t.add_argument("--log-file",          type=str,   default="training_log.csv")
 
     # -- demo ----------------------------------------------------------
     d = sub.add_parser("demo", help="Run a trained agent with the renderer")
@@ -202,6 +215,7 @@ def main():
             args.render_every    = 50
             args.solve_threshold = 400.0
             args.grad_clip       = 1.0
+            args.log_file        = "training_log.csv"
         train(args)
 
 
