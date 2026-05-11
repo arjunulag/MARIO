@@ -7,7 +7,8 @@
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:8765/play.html)",
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:8765/js/game.js)",
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:8765/data/ghost_sample.json)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(pip show *)"
     ]
   }
 }
