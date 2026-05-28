@@ -134,7 +134,7 @@ Built in `functions.py`, `gradient.py`, and `mse_vector.py` — no external ML l
 
 | Module | Purpose |
 |---|---|
-| `functions.py` | `Parameter_init` builds an MLP from a list of dicts (`{"type": "linear", "in": N, "out": M}` / `{"type": "relu"}` / `{"type": "sigmoid"}`). Uses He init for relu, Xavier for sigmoid. |
+| `functions.py` | `Parameter_init` builds an MLP from a list of dicts (`{"type": "linear", "in": N, "out": M}` / `{"type": "relu"}` / `{"type": "sigmoid"}`). Uses the He init for relu, Xavier for sigmoid. |
 | `gradient.py` | `compute_gradients(model, x, y)` — manual backprop, returns grads aligned with `model.layers` plus loss. |
 | `mse_vector.py` | MSE loss and derivative, supports 1D and batched 2D inputs. |
 | `linear+activation.py` | Standalone linear + activation forward with a cache for backprop, used as a teaching reference. |
