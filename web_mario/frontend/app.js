@@ -11,6 +11,7 @@ const resetBtn = document.getElementById("resetBtn");
 const worldSelect = document.getElementById("worldSelect");
 const stageSelect = document.getElementById("stageSelect");
 const versionSelect = document.getElementById("versionSelect");
+const ghostSelect = document.getElementById("ghostSelect");
 const statusText = document.getElementById("status");
 const debugText = document.getElementById("debug");
 const runTimerText = document.getElementById("runTimer");
@@ -79,11 +80,37 @@ async function postJson(path, body = {}) {
   }
 }
 
+
+async function loadGhostOptions(preferredId = null) {
+  const current = preferredId || ghostSelect.value || "none";
+
+  try {
+    const response = await fetch(`${BACKEND_URL}/ghosts`);
+    if (!response.ok) return;
+    const data = await response.json();
+
+    ghostSelect.innerHTML = "";
+    for (const ghost of data.ghosts || []) {
+      const option = document.createElement("option");
+      option.value = ghost.id;
+      option.textContent = ghost.name;
+      option.title = ghost.description || "";
+      ghostSelect.appendChild(option);
+    }
+
+    const exists = Array.from(ghostSelect.options).some((option) => option.value === current);
+    ghostSelect.value = exists ? current : "none";
+  } catch (error) {
+    console.warn("Could not load ghosts", error);
+  }
+}
+
 async function startGame() {
   try {
     const world = Number(worldSelect.value);
     const stage = Number(stageSelect.value);
     const version = Number(versionSelect.value);
+    const ghostId = ghostSelect.value;
 
     running = false;
     stopLoop();
@@ -95,7 +122,12 @@ async function startGame() {
     resetTimer();
 
     statusText.textContent = `Starting World ${world}-${stage} v${version}...`;
-    const data = await postJson("/start", { world, stage, version });
+    const data = await postJson("/start", {
+      world,
+      stage,
+      version,
+      ghost_id: ghostId,
+    });
     drawFrame(data.frame);
     updateDebug(data);
 
@@ -155,7 +187,8 @@ function startLoop() {
           // Only count as a valid speedrun if the player reached the flag
           if (data.info && data.info.flag_get) {
             saveBestTime(finalTime);
-            statusText.textContent = `Finished! ${formatTime(finalTime)}.`;
+            statusText.textContent = `Finished! ${formatTime(finalTime)}. Saved as a replay ghost.`;
+            setTimeout(() => loadGhostOptions(), 400);
           } else {
             statusText.textContent = `Run ended (death). Time not saved.`;
           }
@@ -323,7 +356,7 @@ function handleLevelSelectionChanged() {
   const version = Number(versionSelect.value);
   currentLevelKey = `${world}-${stage}-v${version}`;
   loadBestTime();
-  statusText.textContent = "Level changed. Click Start Level to switch.";
+  statusText.textContent = "Level or ghost changed. Click Start Level to switch.";
 }
 
 startBtn.addEventListener("click", startGame);
@@ -345,6 +378,8 @@ pauseBtn.addEventListener("click", () => {
 worldSelect.addEventListener("change", handleLevelSelectionChanged);
 stageSelect.addEventListener("change", handleLevelSelectionChanged);
 versionSelect.addEventListener("change", handleLevelSelectionChanged);
+ghostSelect.addEventListener("change", handleLevelSelectionChanged);
 
+loadGhostOptions();
 loadBestTime();
 updateTimerDisplay();
