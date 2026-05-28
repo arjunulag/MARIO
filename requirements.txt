@@ -4,3 +4,6 @@ gymnasium>=1.0
 pygame>=2.5
 PyOpenGL>=3.1
 PyOpenGL-accelerate>=3.1
+opencv-python>=4.9
+gym-super-mario-bros>=7.4
+nes-py>=8.2

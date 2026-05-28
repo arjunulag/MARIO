@@ -1,3 +1,4 @@
+import numpy as np
 class Tensor:
     def __init__(self, data, _parents=(), label=''):
         self.data = np.array(data, dtype=np.float32)
@@ -69,7 +70,7 @@ class Tensor:
         out._backward = _backward
         return out
 
-    def backward(self):
+    def backward(self, grad=None):
         topo = []
         visited = set()
 
@@ -81,6 +82,21 @@ class Tensor:
                 topo.append(node)
 
         build(self)
-        self.grad = np.ones_like(self.data)
+        if grad is None:
+            self.grad = np.ones_like(self.data)
+        else:
+            self.grad = np.array(grad, dtype=np.float32).reshape(self.data.shape)
         for node in reversed(topo):
             node._backward()
+
+    def log_softmax(self):
+        shifted = self.data - np.max(self.data)
+        log_probs = shifted - np.log(np.sum(np.exp(shifted)))
+        out = Tensor(log_probs, (self,), 'log_softmax')
+
+        def _backward():
+            softmax = np.exp(log_probs)
+            self.grad += out.grad - softmax * np.sum(out.grad)
+
+        out._backward = _backward
+        return out

@@ -63,6 +63,34 @@ class LayerNorm:
         x_hat = (x - mean) / np.sqrt(var + self.eps)
         return x_hat * self.gamma + self.beta
 
+    def forward_with_cache(self, x):
+        mean = np.mean(x, axis=-1, keepdims=True)
+        var = np.var(x, axis=-1, keepdims=True)
+        inv_std = 1.0 / np.sqrt(var + self.eps)
+        x_hat = (x - mean) * inv_std
+        out = x_hat * self.gamma + self.beta
+        cache = {
+            "x": x,
+            "x_hat": x_hat,
+            "mean": mean,
+            "inv_std": inv_std,
+            "gamma": self.gamma,
+        }
+        return out, cache
+
+    def backward(self, grad_out, cache):
+        x = cache["x"]
+        x_hat = cache["x_hat"]
+        inv_std = cache["inv_std"]
+        gamma = cache["gamma"]
+        D = x.shape[-1]
+
+        dy = grad_out * gamma
+        mean_dy = np.mean(dy, axis=-1, keepdims=True)
+        mean_dy_xhat = np.mean(dy * x_hat, axis=-1, keepdims=True)
+        dx = inv_std * (dy - mean_dy - x_hat * mean_dy_xhat)
+        return dx
+
 
 class MultiHeadAttention:
     """
@@ -124,6 +152,26 @@ class MultiHeadAttention:
         out = self._merge_heads(out)
         return out @ self.W_o + self.b_o
 
+    def forward_with_cache(self, x, attn_mask=None):
+        B, T, _ = x.shape
+        Q = x @ self.W_q + self.b_q
+        K = x @ self.W_k + self.b_k
+        V = x @ self.W_v + self.b_v
+
+        # For T == 1, self-attention is identity across time with weights = 1.
+        out_pre = V @ self.W_o + self.b_o
+        cache = {
+            "x": x,
+            "W_v": self.W_v,
+            "W_o": self.W_o,
+        }
+        return out_pre, cache
+
+    def backward_input(self, grad_out, cache):
+        dV = grad_out @ cache["W_o"].T
+        dx = dV @ cache["W_v"].T
+        return dx
+
 
 class FeedForward:
     """Position-wise FFN built on the existing Parameter_init MLP."""
@@ -142,6 +190,32 @@ class FeedForward:
         flat = x.reshape(B * T, D)
         out = self.mlp.forward(flat)
         return out.reshape(B, T, -1)
+
+    def forward_with_cache(self, x):
+        B, T, D = x.shape
+        flat = x.reshape(B * T, D)
+        h1 = flat @ self.mlp.layers[0]["W"] + self.mlp.layers[0]["b"]
+        alpha = self.mlp.layers[1]["alpha"] if self.mlp.layers[1]["type"] == "relu" else 0.01
+        act = np.where(h1 > 0, h1, alpha * h1)
+        h2 = act @ self.mlp.layers[2]["W"] + self.mlp.layers[2]["b"]
+        out = h2.reshape(B, T, -1)
+        cache = {
+            "x": x,
+            "h1": h1,
+            "act": act,
+            "W1": self.mlp.layers[0]["W"],
+            "W2": self.mlp.layers[2]["W"],
+            "alpha": alpha,
+        }
+        return out, cache
+
+    def backward_input(self, grad_out, cache):
+        B, T, D = grad_out.shape
+        grad_flat = grad_out.reshape(B * T, D)
+        dact = grad_flat @ cache["W2"].T
+        dh1 = dact * np.where(cache["h1"] > 0, 1.0, cache["alpha"])
+        dx_flat = dh1 @ cache["W1"].T
+        return dx_flat.reshape(B, T, -1)
 
 
 class TransformerBlock:
@@ -162,6 +236,36 @@ class TransformerBlock:
             x = self.ln1.forward(x + self.attn.forward(x, attn_mask=attn_mask))
             x = self.ln2.forward(x + self.ffn.forward(x))
         return x
+
+    def forward_with_cache(self, x, attn_mask=None):
+        cache = {}
+        x0 = x
+        x1, ln1_cache = self.ln1.forward_with_cache(x0)
+        attn_out, attn_cache = self.attn.forward_with_cache(x1, attn_mask=attn_mask)
+        x2 = x0 + attn_out
+        x3, ln2_cache = self.ln2.forward_with_cache(x2)
+        ffn_out, ffn_cache = self.ffn.forward_with_cache(x3)
+        x4 = x2 + ffn_out
+        cache["ln1"] = ln1_cache
+        cache["attn"] = attn_cache
+        cache["ln2"] = ln2_cache
+        cache["ffn"] = ffn_cache
+        cache["x0"] = x0
+        return x4, cache
+
+    def backward_input(self, grad_out, cache):
+        d_x2 = grad_out
+        d_ffn = d_x2
+        d_x2 = d_x2
+
+        d_x3 = self.ffn.backward_input(d_ffn, cache["ffn"])
+        d_x2 += self.ln2.backward(d_x3, cache["ln2"])
+
+        d_attn = d_x2
+        d_x0 = d_x2
+        d_x1 = self.attn.backward_input(d_attn, cache["attn"])
+        d_x0 += self.ln1.backward(d_x1, cache["ln1"])
+        return d_x0
 
 
 class Transformer:
@@ -233,6 +337,40 @@ class Transformer:
             next_id = np.array([rng.choice(probs.shape[-1], p=probs[i]) for i in range(probs.shape[0])])
             ids = np.concatenate([ids, next_id[:, None]], axis=1)
         return ids
+    def forward_from_embedding(self, x):
+        # x is shape (1, 1, d_model) — one frame, one timestep
+        for block in self.blocks:
+            x = block.forward(x)
+        x = self.ln_f.forward(x)
+        logits = x @ self.token_emb.T + self.out_bias
+        return logits  # shape (1, 1, vocab_size) → action logits
+
+    def forward_from_embedding_with_cache(self, x):
+        cache = {"blocks": []}
+        h = x
+        for block in self.blocks:
+            h, block_cache = block.forward_with_cache(h)
+            cache["blocks"].append(block_cache)
+        h, ln_f_cache = self.ln_f.forward_with_cache(h)
+        cache["ln_f"] = ln_f_cache
+
+        if self.out_proj is None:
+            logits = h @ self.token_emb.T + self.out_bias
+        else:
+            logits = h @ self.out_proj + self.out_bias
+        cache["h"] = h
+        return logits, cache
+
+    def input_grad(self, grad_logits, cache):
+        if self.out_proj is None:
+            d_h = grad_logits @ self.token_emb
+        else:
+            d_h = grad_logits @ self.out_proj.T
+
+        d_h = self.ln_f.backward(d_h, cache["ln_f"])
+        for block, block_cache in zip(reversed(self.blocks), reversed(cache["blocks"])):
+            d_h = block.backward_input(d_h, block_cache)
+        return d_h
 
 
 if __name__ == "__main__":

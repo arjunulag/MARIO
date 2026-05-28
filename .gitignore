@@ -1,1 +1,12 @@
 
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+.venv/
+venv/
+
+*.npy
+*.png
+tempCodeRunnerFile.py
