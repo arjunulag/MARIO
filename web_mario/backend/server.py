@@ -13,15 +13,16 @@ from __future__ import annotations
 import base64
 import io
 import json
+import struct
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import gym_super_mario_bros
 import numpy as np
-from fastapi import FastAPI
+import gym_super_mario_bros
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
 from nes_py.wrappers import JoypadSpace
@@ -89,6 +90,7 @@ class StartRequest(BaseModel):
     stage: int = 1
     version: int = 0
     ghost_id: str = "none"
+    run_mode: str = "stable"
 
 
 class FrameResponse(BaseModel):
@@ -222,79 +224,114 @@ class MarioSession:
         self.step_idx = 0
         self.done = False
         self.last_info: Dict = {}
+        self.last_frame: Optional[np.ndarray] = None
         self.ghost = GhostReplay()
         self.recorded_steps: List[Dict] = []
         self.current_level = (1, 1, 0)
+        self.current_run_mode = "stable"
         self.last_action_idx = 0
         self.run_start_wall_time = 0.0
         self.lock = threading.Lock()
 
-    def start(self, world: int = 1, stage: int = 1, version: int = 0, ghost_id: str = "none") -> FrameResponse:
+    def start(self, world: int = 1, stage: int = 1, version: int = 0, ghost_id: str = "none", run_mode: str = "stable") -> FrameResponse:
         """Create/switch to a level and return the first rendered frame."""
         with self.lock:
-            if self.env is not None:
-                self.env.close()
-                self.env = None
-
-            self.current_level = (world, stage, version)
-            self.env_id = f"SuperMarioBros-{world}-{stage}-v{version}"
-            env = gym_super_mario_bros.make(self.env_id)
-            env = JoypadSpace(env, ACTION_SPACE)
-
-            self.env = env
-            self.step_idx = 0
-            self.done = False
-            self.last_info = {}
-            self.recorded_steps = []
-            self.last_action_idx = 0
-            self.run_start_wall_time = time.time()
-            self.ghost.set_ghost(ghost_id)
-            self.ghost.reset()
-            self._reset_env_locked()
-
+            self._start_locked(world, stage, version, ghost_id, run_mode)
             return self._response_locked(action_idx=0)
+
+    def start_packet(self, world: int = 1, stage: int = 1, version: int = 0, ghost_id: str = "none", run_mode: str = "stable") -> bytes:
+        with self.lock:
+            self._start_locked(world, stage, version, ghost_id, run_mode)
+            return self._packet_locked(action_idx=0)
 
     def reset(self) -> FrameResponse:
         with self.lock:
-            if self.env is None:
-                self.env_id = "SuperMarioBros-1-1-v0"
-                env = gym_super_mario_bros.make(self.env_id)
-                env = JoypadSpace(env, ACTION_SPACE)
-                self.env = env
-
-            self.step_idx = 0
-            self.done = False
-            self.last_info = {}
-            self.recorded_steps = []
-            self.last_action_idx = 0
-            self.run_start_wall_time = time.time()
-            self.ghost.reset()
-            self._reset_env_locked()
+            self._reset_locked()
             return self._response_locked(action_idx=0)
+
+    def reset_packet(self) -> bytes:
+        with self.lock:
+            self._reset_locked()
+            return self._packet_locked(action_idx=0)
 
     def step(self, input_state: InputState) -> FrameResponse:
         with self.lock:
             if self.env is None:
-                return self.start()
+                self._start_locked()
 
-            action_idx = input_to_action(input_state)
-
-            if not self.done:
-                _, _, self.done, self.last_info = safe_step(self.env, action_idx)
-                self.step_idx += 1
-                self.last_action_idx = action_idx
-                self._record_step_locked(action_idx)
-
-                if self.done and self.last_info.get("flag_get"):
-                    self._save_recording_locked()
-
+            action_idx = self._step_locked(input_state)
             return self._response_locked(action_idx=action_idx)
+
+    def step_packet(self, input_state: InputState) -> bytes:
+        with self.lock:
+            if self.env is None:
+                self._start_locked()
+
+            action_idx = self._step_locked(input_state)
+            return self._packet_locked(action_idx=action_idx)
+
+    def _start_locked(self, world: int = 1, stage: int = 1, version: int = 0, ghost_id: str = "none", run_mode: str = "stable") -> None:
+        if self.env is not None:
+            self.env.close()
+            self.env = None
+
+        self.current_level = (world, stage, version)
+        self.current_run_mode = sanitize_run_mode(run_mode)
+        self.env_id = f"SuperMarioBros-{world}-{stage}-v{version}"
+        env = gym_super_mario_bros.make(self.env_id)
+        env = JoypadSpace(env, ACTION_SPACE)
+
+        self.env = env
+        self.step_idx = 0
+        self.done = False
+        self.last_info = {}
+        self.last_frame = None
+        self.recorded_steps = []
+        self.last_action_idx = 0
+        self.run_start_wall_time = time.time()
+        self.ghost.set_ghost(ghost_id)
+        self.ghost.reset()
+        self._reset_env_locked()
+
+    def _reset_locked(self) -> None:
+        if self.env is None:
+            self.env_id = "SuperMarioBros-1-1-v0"
+            env = gym_super_mario_bros.make(self.env_id)
+            env = JoypadSpace(env, ACTION_SPACE)
+            self.env = env
+
+        self.step_idx = 0
+        self.done = False
+        self.last_info = {}
+        self.last_frame = None
+        self.recorded_steps = []
+        self.last_action_idx = 0
+        self.run_start_wall_time = time.time()
+        self.ghost.reset()
+        self._reset_env_locked()
+
+    def _step_locked(self, input_state: InputState) -> int:
+        action_idx = input_to_action(input_state)
+
+        if not self.done:
+            obs, _, self.done, self.last_info = safe_step(self.env, action_idx)
+            self.last_frame = np.asarray(obs).copy()
+            self.step_idx += 1
+            self.last_action_idx = action_idx
+            self._record_step_locked(action_idx)
+
+            if self.done and self.last_info.get("flag_get"):
+                self._save_recording_locked()
+
+        return action_idx
 
     def _reset_env_locked(self) -> None:
         reset_result = self.env.reset()
         if isinstance(reset_result, tuple):
+            self.last_frame = np.asarray(reset_result[0]).copy()
             self.last_info = reset_result[1] or {}
         else:
+            self.last_frame = np.asarray(reset_result).copy()
             self.last_info = {}
 
     def _record_step_locked(self, action_idx: int) -> None:
@@ -335,6 +372,7 @@ class MarioSession:
                 "world": world,
                 "stage": stage,
                 "version": version,
+                "run_mode": self.current_run_mode,
                 "created_at": timestamp,
             },
             "steps": self.recorded_steps,
@@ -345,22 +383,52 @@ class MarioSession:
         if self.env is None:
             return FrameResponse(ok=False, message="Environment has not started.")
 
-        frame = get_frame(self.env)
+        frame, meta = self._frame_and_meta_locked(action_idx)
+        frame_uri = frame_to_data_uri(frame)
+
+        return FrameResponse(
+            frame=frame_uri,
+            **meta,
+        )
+
+    def _packet_locked(self, action_idx: int) -> bytes:
+        if self.env is None:
+            return build_frame_packet(np.zeros((240, 256, 3), dtype=np.uint8), {
+                "ok": False,
+                "step": self.step_idx,
+                "done": self.done,
+                "action": ACTION_NAMES[action_idx],
+                "info": {},
+                "message": "Environment has not started.",
+            })
+
+        frame, meta = self._frame_and_meta_locked(action_idx)
+        return build_frame_packet(frame, meta)
+
+    def _frame_and_meta_locked(self, action_idx: int) -> Tuple[np.ndarray, Dict]:
+        frame = self.last_frame
+        if frame is None:
+            frame = get_frame(self.env)
+        else:
+            frame = frame.copy()
         ghost_state = self.ghost.get_state(self.step_idx, self.last_info)
         frame = draw_ghost_overlay(frame, ghost_state)
-        frame_uri = frame_to_data_uri(frame)
 
         info = sanitize_info(self.last_info)
         info["env_id"] = self.env_id
+        info["run_mode"] = self.current_run_mode
 
-        return FrameResponse(
-            ok=True,
-            frame=frame_uri,
-            step=self.step_idx,
-            done=self.done,
-            action=ACTION_NAMES[action_idx],
-            info=info,
-        )
+        return frame, {
+            "ok": True,
+            "step": self.step_idx,
+            "done": self.done,
+            "action": ACTION_NAMES[action_idx],
+            "info": info,
+            "message": "",
+            "width": int(frame.shape[1]),
+            "height": int(frame.shape[0]),
+            "channels": int(frame.shape[2]) if frame.ndim == 3 else 1,
+        }
 
 
 session = MarioSession()
@@ -555,6 +623,12 @@ def safe_float(value, default: float = 0.0) -> float:
         return default
 
 
+def sanitize_run_mode(value: str) -> str:
+    if value in {"competition", "stable", "laptop"}:
+        return value
+    return "stable"
+
+
 def frame_to_data_uri(frame: np.ndarray) -> str:
     """Encode a frame for the browser.
 
@@ -566,6 +640,19 @@ def frame_to_data_uri(frame: np.ndarray) -> str:
     image.save(buffer, format="JPEG", quality=JPEG_QUALITY, optimize=False, subsampling=0)
     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
     return f"data:image/jpeg;base64,{encoded}"
+
+
+def build_frame_packet(frame: np.ndarray, meta: Dict) -> bytes:
+    rgb_frame = np.ascontiguousarray(frame, dtype=np.uint8)
+
+    header = {
+        **meta,
+        "width": int(rgb_frame.shape[1]),
+        "height": int(rgb_frame.shape[0]),
+        "channels": int(rgb_frame.shape[2]) if rgb_frame.ndim == 3 else 1,
+    }
+    header_bytes = json.dumps(header, separators=(",", ":")).encode("utf-8")
+    return struct.pack("<I", len(header_bytes)) + header_bytes + rgb_frame.tobytes()
 
 
 def sanitize_info(info: Dict) -> Dict:
@@ -592,7 +679,7 @@ def list_ghosts():
 
 @app.post("/start", response_model=FrameResponse)
 def start_game(request: StartRequest):
-    return session.start(request.world, request.stage, request.version, request.ghost_id)
+    return session.start(request.world, request.stage, request.version, request.ghost_id, request.run_mode)
 
 
 @app.post("/reset", response_model=FrameResponse)
@@ -603,3 +690,31 @@ def reset_game():
 @app.post("/step", response_model=FrameResponse)
 def step_game(request: StepRequest):
     return session.step(request.input)
+
+
+@app.websocket("/ws")
+async def websocket_game(websocket: WebSocket):
+    await websocket.accept()
+
+    try:
+        while True:
+            raw_message = await websocket.receive_text()
+            request = json.loads(raw_message)
+            request_type = request.get("type", "step")
+
+            if request_type == "start":
+                packet = session.start_packet(
+                    int(request.get("world", 1)),
+                    int(request.get("stage", 1)),
+                    int(request.get("version", 0)),
+                    str(request.get("ghost_id", "none")),
+                    str(request.get("run_mode", "stable")),
+                )
+            elif request_type == "reset":
+                packet = session.reset_packet()
+            else:
+                packet = session.step_packet(InputState(**request.get("input", {})))
+
+            await websocket.send_bytes(packet)
+    except WebSocketDisconnect:
+        return
