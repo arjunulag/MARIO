@@ -155,7 +155,9 @@ A reverse-mode autodiff engine built around a small `Tensor` class that records 
 |---|---|
 | `mario_env.py` | Gymnasium-compatible Super Mario Bros environment factory (`gym_super_mario_bros` + `nes_py`), `SIMPLE_MOVEMENT` action space, frame skip/stack hooks, reward shaping. |
 | `preprocessFrames.py` | Grayscale → resize-to-84×84 → normalize-to-[0,1]; `build_initial_stack()` returns a length-4 deque + stacked array. |
-| `cnnMarioViewer.py` | Glue script: builds the Mario env, sets up SIMPLE_MOVEMENT, primes the frame stack, and runs the CNN forward pass. |
+| `train_mario_dqn.py` | Train CNN→Transformer→DQN on levels **1-1, 1-2, 1-3, 1-4, 2-1**; saves `weights/mario_dqn/best_{level}.npy` per level. |
+| `watch_mario_levels.py` | Play each trained level with its best weights (`python watch_mario_levels.py`). |
+| `mario_levels.py` / `mario_dqn_checkpoint.py` | Level IDs, env factory, checkpoint save/load. |
 | `race.py` | Human-vs-ghost race mode — keyboard control through pygame with a stub for replaying saved trajectories. |
 
 ### Transformer
@@ -235,7 +237,7 @@ MARIO/
 ├── hyperparam_search.py         # Hyperparameter sweep helper
 ├── mario_env.py                 # Gymnasium-compatible Super Mario Bros env factory
 ├── preprocessFrames.py          # Grayscale + 84×84 resize + 4-frame stack
-├── cnnMarioViewer.py            # Mario env + CNN forward pass driver
+├── train_mario_dqn.py           # Mario CNN→Transformer→DQN training
 ├── race.py                      # Human-vs-ghost pygame race mode
 ├── linear_regression.py         # Linear regression example
 ├── housing_predict.py           # Boston Housing regression example

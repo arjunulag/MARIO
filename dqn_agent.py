@@ -406,29 +406,49 @@ class MarioCNNTransformerDQNAgent:
             tensor.data -= self.lr * np.clip(tensor.grad, -self.grad_clip, self.grad_clip)
         self._zero_cnn_grads()
 
-    def train(self) -> float | None:
+    def _td_targets(self, rewards, next_states, dones) -> np.ndarray:
+        """Vectorized TD targets (forward-only on target network)."""
+        targets = np.empty(self.batch_size, dtype=np.float64)
+        for i, (reward, next_state, done) in enumerate(zip(rewards, next_states, dones)):
+            reward = float(np.clip(reward, -self.reward_clip, self.reward_clip))
+            if done:
+                targets[i] = reward
+            else:
+                targets[i] = reward + self.gamma * float(
+                    np.max(self.q_values(next_state, use_target=True))
+                )
+        return targets
+
+    def train(self, updates: int = 1) -> float | None:
         if len(self.buffer) < self.batch_size:
             return None
 
-        states, actions, rewards, next_states, dones = self.buffer.sample(self.batch_size)
-        losses = []
+        losses: list[float] = []
+        for _ in range(max(1, int(updates))):
+            states, actions, rewards, next_states, dones = self.buffer.sample(self.batch_size)
+            td_targets = self._td_targets(rewards, next_states, dones)
 
-        for state, action, reward, next_state, done in zip(
-            states, actions, rewards, next_states, dones
-        ):
-            reward = float(np.clip(reward, -self.reward_clip, self.reward_clip))
-            current_q = self.q_values(state)[action]
-            target = reward
-            if not done:
-                target += self.gamma * float(np.max(self.q_values(next_state, use_target=True)))
+            for state, action, td_target in zip(states, actions, td_targets):
+                current_q = self.q_values(state)[action]
+                error = current_q - float(td_target)
+                losses.append(0.5 * float(error * error))
+                self._update_from_q_gradient(state, action, error / self.batch_size)
 
-            error = current_q - target
-            losses.append(0.5 * float(error * error))
-            self._update_from_q_gradient(state, action, error / self.batch_size)
+            self.train_steps += 1
+            if self.train_steps % self.target_sync_every == 0:
+                self._sync_target()
 
-        self.train_steps += 1
-        if self.train_steps % self.target_sync_every == 0:
-            self._sync_target()
+            self.epsilon = max(self.epsilon_end, self.epsilon * self.epsilon_decay)
 
-        self.epsilon = max(self.epsilon_end, self.epsilon * self.epsilon_decay)
-        return float(np.mean(losses))
+        return float(np.mean(losses)) if losses else None
+
+    def save(self, path: str, meta: dict | None = None) -> None:
+        from mario_dqn_checkpoint import save_agent
+
+        save_agent(self, path, meta=meta)
+
+    @classmethod
+    def load(cls, path: str, *, epsilon: float | None = None):
+        from mario_dqn_checkpoint import load_agent
+
+        return load_agent(path, epsilon=epsilon)
