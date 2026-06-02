@@ -133,6 +133,7 @@ def maybe_save_best(
     episode_idx: int,
     best_scores: dict[str, float],
     weights_dir: Path,
+    manifest_path: Path,
     manifest: dict,
 ) -> bool:
     score = episode_score(
@@ -163,7 +164,7 @@ def maybe_save_best(
         "score": score,
         **meta,
     }
-    save_manifest(DEFAULT_MANIFEST, manifest)
+    save_manifest(manifest_path, manifest)
     print(
         f"  [checkpoint] new best for {key}: score={score:.1f} "
         f"x={meta['x_pos']} flag={meta['flag_get']} -> {out_path}",
@@ -181,7 +182,8 @@ def train(
     resume: str | None,
 ) -> None:
     weights_dir.mkdir(parents=True, exist_ok=True)
-    manifest = load_manifest(DEFAULT_MANIFEST)
+    manifest_path = weights_dir / "manifest.json"
+    manifest = load_manifest(manifest_path)
     best_scores = {
         key: float(entry.get("score", -1.0))
         for key, entry in manifest.get("levels", {}).items()
@@ -237,6 +239,7 @@ def train(
             episode,
             best_scores,
             weights_dir,
+            manifest_path,
             manifest,
         )
 
@@ -259,7 +262,7 @@ def train(
     )
     print(f"Done. Latest weights: {weights_dir / 'latest.npy'}", flush=True)
     print(f"Per-level best: {weights_dir}/best_*.npy", flush=True)
-    print(f"Manifest: {DEFAULT_MANIFEST}", flush=True)
+    print(f"Manifest: {manifest_path}", flush=True)
 
 
 def parse_args():

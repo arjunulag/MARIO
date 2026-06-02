@@ -376,7 +376,34 @@ class MarioCNNTransformerDQNAgent:
         for tensor in [*self.kernels, self.W1, self.b1, self.W2, self.b2]:
             tensor.grad = np.zeros_like(tensor.grad)
 
+    def _apply_transformer_grads(self, grads):
+        clip = self.grad_clip
+        if grads.get("token_emb") is not None:
+            self.transformer.token_emb -= self.lr * np.clip(grads["token_emb"], -clip, clip)
+        if grads.get("out_proj") is not None:
+            self.transformer.out_proj -= self.lr * np.clip(grads["out_proj"], -clip, clip)
+        self.transformer.out_bias -= self.lr * np.clip(grads["out_bias"], -clip, clip)
+        self.transformer.ln_f.gamma -= self.lr * np.clip(grads["ln_f_gamma"], -clip, clip)
+        self.transformer.ln_f.beta -= self.lr * np.clip(grads["ln_f_beta"], -clip, clip)
+
+        for block, block_grads in zip(self.transformer.blocks, grads["blocks"]):
+            for name, grad in block_grads["attn"].items():
+                param = getattr(block.attn, name)
+                param -= self.lr * np.clip(grad, -clip, clip)
+
+            for layer, layer_grads in zip(block.ffn.mlp.layers, block_grads["ffn"]["layers"]):
+                if "W" in layer_grads:
+                    layer["W"] -= self.lr * np.clip(layer_grads["W"], -clip, clip)
+                if "b" in layer_grads:
+                    layer["b"] -= self.lr * np.clip(layer_grads["b"], -clip, clip)
+
+            block.ln1.gamma -= self.lr * np.clip(block_grads["ln1_gamma"], -clip, clip)
+            block.ln1.beta -= self.lr * np.clip(block_grads["ln1_beta"], -clip, clip)
+            block.ln2.gamma -= self.lr * np.clip(block_grads["ln2_gamma"], -clip, clip)
+            block.ln2.beta -= self.lr * np.clip(block_grads["ln2_beta"], -clip, clip)
+
     def _update_from_q_gradient(self, state, action, grad_q):
+        self._zero_cnn_grads()
         x = forward(state, self.kernels, self.W1, self.b1, self.W2, self.b2)
         logits, cache = self.transformer.forward_from_embedding_with_cache(
             x.data.reshape(1, 1, -1)
@@ -386,20 +413,13 @@ class MarioCNNTransformerDQNAgent:
         grad_logits = np.zeros((1, 1, self.action_dim), dtype=np.float32)
         grad_logits[0, 0, action] = np.clip(grad_q, -self.grad_clip, self.grad_clip)
 
-        h = cache["h"]
-        grad_features = self.transformer.input_grad(grad_logits, cache).reshape(-1)
+        grad_features, transformer_grads = self.transformer.embedding_backward_with_params(
+            grad_logits,
+            cache,
+        )
+        self._apply_transformer_grads(transformer_grads)
 
-        if self.transformer.out_proj is None:
-            self.transformer.token_emb -= self.lr * np.einsum(
-                "btd,btv->vd", h, grad_logits
-            )
-        else:
-            self.transformer.out_proj -= self.lr * np.einsum(
-                "btd,btv->dv", h, grad_logits
-            )
-        self.transformer.out_bias -= self.lr * grad_logits.sum(axis=(0, 1))
-
-        x.backward(grad_features)
+        x.backward(grad_features.reshape(-1))
         for tensor in self.kernels:
             tensor.data -= self.lr * np.clip(tensor.grad, -self.grad_clip, self.grad_clip)
         for tensor in [self.W1, self.b1, self.W2, self.b2]:

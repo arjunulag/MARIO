@@ -1,4 +1,5 @@
 import unittest
+import copy
 from pathlib import Path
 import sys
 
@@ -12,6 +13,8 @@ from CNN_network import forward
 from Tensor import Tensor
 from dqn_agent import MarioCNNTransformerDQNAgent, ReplayBuffer
 from mario_training_utils import shape_mario_reward
+from train import ReplayBuffer as LegacyReplayBuffer
+from train import clone_cnn_weights, train_dqn_batch
 from transformer import Transformer, TransformerConfig
 
 
@@ -92,6 +95,25 @@ class CNNTransformerDQNTests(unittest.TestCase):
         self.assertEqual(grad_embedding.shape, embedding.shape)
         self.assertTrue(np.all(np.isfinite(grad_embedding)))
 
+    def test_transformer_embedding_inference_matches_cached_path_when_untied(self):
+        np.random.seed(5)
+        cfg = TransformerConfig(
+            vocab_size=5,
+            d_model=8,
+            num_heads=2,
+            num_layers=1,
+            d_ff=16,
+            max_seq_len=4,
+            tie_embeddings=False,
+        )
+        transformer = Transformer(cfg)
+        embedding = np.random.randn(1, 1, 8)
+
+        logits = transformer.forward_from_embedding(embedding)
+        cached_logits, _ = transformer.forward_from_embedding_with_cache(embedding)
+
+        np.testing.assert_allclose(logits, cached_logits, rtol=1e-6, atol=1e-6)
+
     def test_replay_buffer_preserves_transition_shapes(self):
         replay = ReplayBuffer(capacity=3)
         state = np.zeros((4, 12, 12))
@@ -124,6 +146,9 @@ class CNNTransformerDQNTests(unittest.TestCase):
 
         before_W2 = agent.W2.data.copy()
         before_token_emb = agent.transformer.token_emb.copy()
+        before_attn_W_v = agent.transformer.blocks[0].attn.W_v.copy()
+        before_ffn_W = agent.transformer.blocks[0].ffn.mlp.layers[0]["W"].copy()
+        before_ln_gamma = agent.transformer.blocks[0].ln1.gamma.copy()
         loss = agent.train()
 
         self.assertIsNotNone(loss)
@@ -131,6 +156,9 @@ class CNNTransformerDQNTests(unittest.TestCase):
         self.assertEqual(agent.train_steps, 1)
         self.assertTrue(np.any(agent.W2.data != before_W2))
         self.assertTrue(np.any(agent.transformer.token_emb != before_token_emb))
+        self.assertTrue(np.any(agent.transformer.blocks[0].attn.W_v != before_attn_W_v))
+        self.assertTrue(np.any(agent.transformer.blocks[0].ffn.mlp.layers[0]["W"] != before_ffn_W))
+        self.assertTrue(np.any(agent.transformer.blocks[0].ln1.gamma != before_ln_gamma))
 
     def test_mario_dqn_target_network_syncs_on_schedule(self):
         np.random.seed(3)
@@ -146,6 +174,56 @@ class CNNTransformerDQNTests(unittest.TestCase):
         np.testing.assert_allclose(
             agent.transformer.token_emb, agent.target_transformer.token_emb
         )
+
+    def test_legacy_train_batch_updates_transformer_blocks(self):
+        np.random.seed(4)
+        kernels, W1, b1, W2, b2 = make_tiny_cnn(d_model=8)
+        cfg = TransformerConfig(
+            vocab_size=4,
+            d_model=8,
+            num_heads=2,
+            num_layers=1,
+            d_ff=16,
+            max_seq_len=4,
+        )
+        transformer = Transformer(cfg)
+        target_kernels, target_W1, target_b1, target_W2, target_b2 = clone_cnn_weights(
+            kernels,
+            W1,
+            b1,
+            W2,
+            b2,
+        )
+        target_transformer = copy.deepcopy(transformer)
+
+        replay = LegacyReplayBuffer(capacity=8)
+        state = np.random.rand(4, 12, 12).astype(np.float32)
+        next_state = np.random.rand(4, 12, 12).astype(np.float32)
+        for i in range(4):
+            replay.push(state, i % 4, float(i), next_state, False)
+
+        before_attn_W_v = transformer.blocks[0].attn.W_v.copy()
+        before_ffn_W = transformer.blocks[0].ffn.mlp.layers[0]["W"].copy()
+        loss = train_dqn_batch(
+            replay,
+            kernels,
+            W1,
+            b1,
+            W2,
+            b2,
+            transformer,
+            target_kernels,
+            target_W1,
+            target_b1,
+            target_W2,
+            target_b2,
+            target_transformer,
+            batch_size=4,
+        )
+
+        self.assertIsNotNone(loss)
+        self.assertTrue(np.any(transformer.blocks[0].attn.W_v != before_attn_W_v))
+        self.assertTrue(np.any(transformer.blocks[0].ffn.mlp.layers[0]["W"] != before_ffn_W))
 
     def test_reward_shaping_rewards_progress_and_penalizes_idle(self):
         shaped, progress, previous = shape_mario_reward(

@@ -91,6 +91,13 @@ class LayerNorm:
         dx = inv_std * (dy - mean_dy - x_hat * mean_dy_xhat)
         return dx
 
+    def backward_with_params(self, grad_out, cache):
+        dx = self.backward(grad_out, cache)
+        axes = tuple(range(grad_out.ndim - 1))
+        dgamma = np.sum(grad_out * cache["x_hat"], axis=axes)
+        dbeta = np.sum(grad_out, axis=axes)
+        return dx, dgamma, dbeta
+
 
 class MultiHeadAttention:
     """
@@ -172,6 +179,31 @@ class MultiHeadAttention:
         dx = dV @ cache["W_v"].T
         return dx
 
+    def backward_with_params(self, grad_out, cache):
+        x = cache["x"]
+        W_v = cache["W_v"]
+        W_o = cache["W_o"]
+        V = x @ W_v + self.b_v
+
+        grad_flat = grad_out.reshape(-1, grad_out.shape[-1])
+        x_flat = x.reshape(-1, x.shape[-1])
+        v_flat = V.reshape(-1, V.shape[-1])
+
+        dW_o = v_flat.T @ grad_flat
+        db_o = grad_flat.sum(axis=0)
+        dV = grad_out @ W_o.T
+        dV_flat = dV.reshape(-1, dV.shape[-1])
+        dW_v = x_flat.T @ dV_flat
+        db_v = dV_flat.sum(axis=0)
+        dx = dV @ W_v.T
+
+        return dx, {
+            "W_v": dW_v,
+            "b_v": db_v,
+            "W_o": dW_o,
+            "b_o": db_o,
+        }
+
 
 class FeedForward:
     """Position-wise FFN built on the existing Parameter_init MLP."""
@@ -216,6 +248,27 @@ class FeedForward:
         dh1 = dact * np.where(cache["h1"] > 0, 1.0, cache["alpha"])
         dx_flat = dh1 @ cache["W1"].T
         return dx_flat.reshape(B, T, -1)
+
+    def backward_with_params(self, grad_out, cache):
+        B, T, D = grad_out.shape
+        grad_flat = grad_out.reshape(B * T, D)
+        x_flat = cache["x"].reshape(B * T, -1)
+
+        dW2 = cache["act"].T @ grad_flat
+        db2 = grad_flat.sum(axis=0)
+        dact = grad_flat @ cache["W2"].T
+        dh1 = dact * np.where(cache["h1"] > 0, 1.0, cache["alpha"])
+        dW1 = x_flat.T @ dh1
+        db1 = dh1.sum(axis=0)
+        dx_flat = dh1 @ cache["W1"].T
+
+        return dx_flat.reshape(B, T, -1), {
+            "layers": [
+                {"W": dW1, "b": db1},
+                {},
+                {"W": dW2, "b": db2},
+            ]
+        }
 
 
 class TransformerBlock:
@@ -266,6 +319,29 @@ class TransformerBlock:
         d_x1 = self.attn.backward_input(d_attn, cache["attn"])
         d_x0 += self.ln1.backward(d_x1, cache["ln1"])
         return d_x0
+
+    def backward_with_params(self, grad_out, cache):
+        d_x2 = grad_out.copy()
+        d_ffn = d_x2
+
+        d_x3, ffn_grads = self.ffn.backward_with_params(d_ffn, cache["ffn"])
+        d_ln2, ln2_gamma, ln2_beta = self.ln2.backward_with_params(d_x3, cache["ln2"])
+        d_x2 += d_ln2
+
+        d_attn = d_x2
+        d_x0 = d_x2.copy()
+        d_x1, attn_grads = self.attn.backward_with_params(d_attn, cache["attn"])
+        d_ln1, ln1_gamma, ln1_beta = self.ln1.backward_with_params(d_x1, cache["ln1"])
+        d_x0 += d_ln1
+
+        return d_x0, {
+            "attn": attn_grads,
+            "ffn": ffn_grads,
+            "ln1_gamma": ln1_gamma,
+            "ln1_beta": ln1_beta,
+            "ln2_gamma": ln2_gamma,
+            "ln2_beta": ln2_beta,
+        }
 
 
 class Transformer:
@@ -342,7 +418,10 @@ class Transformer:
         for block in self.blocks:
             x = block.forward(x)
         x = self.ln_f.forward(x)
-        logits = x @ self.token_emb.T + self.out_bias
+        if self.out_proj is None:
+            logits = x @ self.token_emb.T + self.out_bias
+        else:
+            logits = x @ self.out_proj + self.out_bias
         return logits  # shape (1, 1, vocab_size) → action logits
 
     def forward_from_embedding_with_cache(self, x):
@@ -371,6 +450,36 @@ class Transformer:
         for block, block_cache in zip(reversed(self.blocks), reversed(cache["blocks"])):
             d_h = block.backward_input(d_h, block_cache)
         return d_h
+
+    def embedding_backward_with_params(self, grad_logits, cache):
+        h = cache["h"]
+        h_flat = h.reshape(-1, h.shape[-1])
+        grad_flat = grad_logits.reshape(-1, grad_logits.shape[-1])
+
+        grads = {
+            "blocks": [None] * len(self.blocks),
+            "out_bias": grad_flat.sum(axis=0),
+        }
+        if self.out_proj is None:
+            d_h = grad_logits @ self.token_emb
+            grads["token_emb"] = grad_flat.T @ h_flat
+            grads["out_proj"] = None
+        else:
+            d_h = grad_logits @ self.out_proj.T
+            grads["out_proj"] = h_flat.T @ grad_flat
+            grads["token_emb"] = None
+
+        d_h, grads["ln_f_gamma"], grads["ln_f_beta"] = self.ln_f.backward_with_params(
+            d_h,
+            cache["ln_f"],
+        )
+        for idx in range(len(self.blocks) - 1, -1, -1):
+            d_h, block_grads = self.blocks[idx].backward_with_params(
+                d_h,
+                cache["blocks"][idx],
+            )
+            grads["blocks"][idx] = block_grads
+        return d_h, grads
 
 
 if __name__ == "__main__":
