@@ -97,28 +97,64 @@ def _zero_cnn_grads(kernels, weights):
         tensor.grad = np.zeros_like(tensor.grad)
 
 
-def _update_from_q_gradient(state, action, grad_q, kernels, W1, b1, W2, b2, transformer, lr):
+def _apply_transformer_grads(transformer, grads, lr, grad_clip=1.0):
+    if grads.get("token_emb") is not None:
+        transformer.token_emb -= lr * np.clip(grads["token_emb"], -grad_clip, grad_clip)
+    if grads.get("out_proj") is not None:
+        transformer.out_proj -= lr * np.clip(grads["out_proj"], -grad_clip, grad_clip)
+    transformer.out_bias -= lr * np.clip(grads["out_bias"], -grad_clip, grad_clip)
+    transformer.ln_f.gamma -= lr * np.clip(grads["ln_f_gamma"], -grad_clip, grad_clip)
+    transformer.ln_f.beta -= lr * np.clip(grads["ln_f_beta"], -grad_clip, grad_clip)
+
+    for block, block_grads in zip(transformer.blocks, grads["blocks"]):
+        for name, grad in block_grads["attn"].items():
+            param = getattr(block.attn, name)
+            param -= lr * np.clip(grad, -grad_clip, grad_clip)
+
+        for layer, layer_grads in zip(block.ffn.mlp.layers, block_grads["ffn"]["layers"]):
+            if "W" in layer_grads:
+                layer["W"] -= lr * np.clip(layer_grads["W"], -grad_clip, grad_clip)
+            if "b" in layer_grads:
+                layer["b"] -= lr * np.clip(layer_grads["b"], -grad_clip, grad_clip)
+
+        block.ln1.gamma -= lr * np.clip(block_grads["ln1_gamma"], -grad_clip, grad_clip)
+        block.ln1.beta -= lr * np.clip(block_grads["ln1_beta"], -grad_clip, grad_clip)
+        block.ln2.gamma -= lr * np.clip(block_grads["ln2_gamma"], -grad_clip, grad_clip)
+        block.ln2.beta -= lr * np.clip(block_grads["ln2_beta"], -grad_clip, grad_clip)
+
+
+def _update_from_q_gradient(
+    state,
+    action,
+    grad_q,
+    kernels,
+    W1,
+    b1,
+    W2,
+    b2,
+    transformer,
+    lr,
+    grad_clip=1.0,
+):
+    _zero_cnn_grads(kernels, [W1, b1, W2, b2])
     x = forward(state, kernels, W1, b1, W2, b2)
     features = x.data.reshape(1, 1, -1)
     _, cache = transformer.forward_from_embedding_with_cache(features)
 
     grad_logits = np.zeros((1, 1, transformer.cfg.vocab_size), dtype=np.float32)
-    grad_logits[0, 0, action] = grad_q
+    grad_logits[0, 0, action] = np.clip(grad_q, -grad_clip, grad_clip)
 
-    h = cache["h"]
-    grad_features = transformer.input_grad(grad_logits, cache).reshape(-1)
+    grad_features, transformer_grads = transformer.embedding_backward_with_params(
+        grad_logits,
+        cache,
+    )
+    _apply_transformer_grads(transformer, transformer_grads, lr, grad_clip=grad_clip)
 
-    if transformer.out_proj is None:
-        transformer.token_emb -= lr * np.einsum("btd,btv->vd", h, grad_logits)
-    else:
-        transformer.out_proj -= lr * np.einsum("btd,btv->dv", h, grad_logits)
-    transformer.out_bias -= lr * grad_logits.sum(axis=(0, 1))
-
-    x.backward(grad_features)
+    x.backward(grad_features.reshape(-1))
     for tensor in kernels:
-        tensor.data -= lr * tensor.grad
+        tensor.data -= lr * np.clip(tensor.grad, -grad_clip, grad_clip)
     for tensor in [W1, b1, W2, b2]:
-        tensor.data -= lr * tensor.grad
+        tensor.data -= lr * np.clip(tensor.grad, -grad_clip, grad_clip)
     _zero_cnn_grads(kernels, [W1, b1, W2, b2])
 
 
@@ -140,6 +176,7 @@ def train_dqn_batch(
     gamma=0.99,
     lr=0.0001,
     reward_clip=5.0,
+    grad_clip=1.0,
 ):
     if len(replay) < batch_size:
         return None
@@ -178,6 +215,7 @@ def train_dqn_batch(
             b2,
             transformer,
             lr,
+            grad_clip,
         )
 
     return float(np.mean(losses))

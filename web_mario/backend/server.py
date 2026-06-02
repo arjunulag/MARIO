@@ -11,6 +11,7 @@ Then open the frontend at:
 from __future__ import annotations
 
 import base64
+from bisect import bisect_right
 import io
 import json
 import struct
@@ -39,14 +40,19 @@ app = FastAPI(title="Gym Mario Web Backend")
 JPEG_QUALITY = 85
 GHOST_DIR = Path(__file__).resolve().parent / "ghosts"
 GHOST_DIR.mkdir(exist_ok=True)
-PLAYER_SCREEN_X = 80
-PLAYER_SCREEN_Y_FALLBACK = 207
+PLAYER_SCREEN_X = 120
+PLAYER_SCREEN_Y_FALLBACK = 209
+LEGACY_REPLAY_Y_POS_FALLBACK = 207
+MARIO_GROUND_Y_POS = 79
+MARIO_Y_PIXEL_GROUND = 255 - MARIO_GROUND_Y_POS
+MARIO_Y_PIXEL_TO_FOOT_OFFSET = PLAYER_SCREEN_Y_FALLBACK - MARIO_Y_PIXEL_GROUND
+MARIO_SPRITE_CENTER_X_OFFSET = 8
 # Tweak these if your local emulator draws the replay a few pixels off.
 # Negative X moves the ghost left; positive X moves it right.
-GHOST_SCREEN_X_OFFSET = -4
+GHOST_SCREEN_X_OFFSET = 0
 GHOST_SCREEN_Y_OFFSET = 0
 GHOST_SPRITE_SHEET = Path(__file__).resolve().parent / "mario_ghost_sprites.png"
-GHOST_SPRITE_FRAME_WIDTH = 18
+GHOST_SPRITE_FRAME_WIDTH = 22
 GHOST_SPRITE_FRAME_HEIGHT = 16
 GHOST_SPRITE_SCALE = 1
 _GHOST_SPRITES: Optional[List[Image.Image]] = None
@@ -111,6 +117,7 @@ class GhostState:
     action_idx: int = 0
     facing_left: bool = False
     step_idx: int = 0
+    airborne: bool = False
 
 
 class GhostReplay:
@@ -124,6 +131,7 @@ class GhostReplay:
     def __init__(self) -> None:
         self.ghost_id = "none"
         self.steps: List[Dict] = []
+        self.step_numbers: List[int] = []
         self._last_replay_world_x: Optional[float] = None
         self._last_replay_screen_x: Optional[float] = None
 
@@ -144,14 +152,15 @@ class GhostReplay:
 
         for path in sorted(GHOST_DIR.glob("*.json")):
             try:
-                data = json.loads(path.read_text())
-                meta = data.get("meta", {})
-                ghost_label = meta.get("ghost_id", path.stem)
-                time_text = meta.get("finish_time_text") or meta.get("duration_text") or "--:--.---"
-                level_text = f"{meta.get('world', '?')}-{meta.get('stage', '?')} v{meta.get('version', '?')}"
+                data = json.loads(path.read_text(encoding="utf-8"))
+                meta = ghost_metadata(data)
+                ghost_label = meta.get("ghost_id") or meta.get("id") or path.stem
+                time_text = ghost_time_text(meta)
+                level_text = ghost_level_text(meta)
+                name = meta.get("name") or f"{ghost_label} | {time_text} | {level_text}"
                 ghosts.append({
                     "id": f"file:{path.name}",
-                    "name": f"{ghost_label} | {time_text} | {level_text}",
+                    "name": name,
                     "description": meta.get("description", "Recorded player ghost."),
                 })
             except Exception:
@@ -162,6 +171,7 @@ class GhostReplay:
     def set_ghost(self, ghost_id: str) -> None:
         self.ghost_id = ghost_id or "none"
         self.steps = []
+        self.step_numbers = []
         self._last_replay_world_x = None
         self._last_replay_screen_x = None
 
@@ -169,26 +179,30 @@ class GhostReplay:
             filename = self.ghost_id.split(":", 1)[1]
             path = GHOST_DIR / filename
             if path.exists():
-                data = json.loads(path.read_text())
+                data = json.loads(path.read_text(encoding="utf-8"))
                 self.steps = sanitize_replay_steps(data.get("steps", []))
+                self.step_numbers = [int(step.get("step", index + 1)) for index, step in enumerate(self.steps)]
             else:
                 self.ghost_id = "none"
 
     def reset(self) -> None:
-        pass
+        self._last_replay_world_x = None
+        self._last_replay_screen_x = None
 
-    def get_state(self, step_idx: int, info: Dict) -> GhostState:
+    def get_state(self, step_idx: int, info: Dict, camera_x: Optional[float] = None) -> GhostState:
         current_x = safe_float(info.get("x_pos"), 0.0)
+        if camera_x is None:
+            camera_x = fallback_camera_x(current_x)
 
         if self.ghost_id == "demo":
             ghost_world_x = step_idx * 2.2
             ghost_y = PLAYER_SCREEN_Y_FALLBACK
-            screen_x = world_x_to_screen_x(ghost_world_x, current_x)
+            screen_x = world_x_to_screen_x(ghost_world_x, camera_x)
             action_idx = 4 if (step_idx // 12) % 2 == 0 else 3
             return GhostState(enabled=True, x=screen_x, y=ghost_y, action_idx=action_idx, step_idx=step_idx)
 
         if self.steps:
-            step = self.steps[min(step_idx, len(self.steps) - 1)]
+            step = self.steps[self._step_index_for(step_idx)]
             ghost_world_x = safe_float(step.get("x_pos"), 0.0)
 
             # Prevent bad/old recordings from snapping the ghost back to the start.
@@ -198,23 +212,37 @@ class GhostReplay:
                 ghost_world_x = self._last_replay_world_x
             self._last_replay_world_x = ghost_world_x
 
-            # Treat y as a foot position. The SMB player sprite is 16px tall,
-            # and the normal ground foot position is around y=207 in the 240px frame.
-            raw_y = safe_float(step.get("screen_y"), PLAYER_SCREEN_Y_FALLBACK)
-            ghost_y = raw_y if 150 <= raw_y <= 220 else PLAYER_SCREEN_Y_FALLBACK
+            ghost_y = safe_float(step.get("screen_foot_y"), PLAYER_SCREEN_Y_FALLBACK)
             ghost_y += GHOST_SCREEN_Y_OFFSET
 
             action_idx = int(safe_float(step.get("action_idx"), 0))
-            screen_x = world_x_to_screen_x(ghost_world_x, current_x)
+            screen_x = world_x_to_screen_x(ghost_world_x, camera_x)
 
             # Extra screen-space guard against one-frame glitches.
             if self._last_replay_screen_x is not None and abs(screen_x - self._last_replay_screen_x) > 160:
                 screen_x = self._last_replay_screen_x
             self._last_replay_screen_x = screen_x
 
-            return GhostState(enabled=True, x=screen_x, y=ghost_y, action_idx=action_idx, step_idx=step_idx)
+            return GhostState(
+                enabled=True,
+                x=screen_x,
+                y=ghost_y,
+                action_idx=action_idx,
+                facing_left=action_idx == 6,
+                step_idx=step_idx,
+                airborne=ghost_y < PLAYER_SCREEN_Y_FALLBACK - 4,
+            )
 
         return GhostState(enabled=False)
+
+    def _step_index_for(self, step_idx: int) -> int:
+        if not self.step_numbers:
+            return min(max(0, step_idx - 1), len(self.steps) - 1)
+
+        index = bisect_right(self.step_numbers, step_idx) - 1
+        if index < 0:
+            return 0
+        return min(index, len(self.steps) - 1)
 
 
 class MarioSession:
@@ -335,17 +363,21 @@ class MarioSession:
             self.last_info = {}
 
     def _record_step_locked(self, action_idx: int) -> None:
-        # x_pos is world space. y_pos from this env is close enough for a
-        # transparent overlay, but we clamp/fallback for safety.
+        # x_pos is world space. y_pos is inverted RAM distance from the bottom,
+        # so store a normalized screen-foot coordinate for stable replay.
         x_pos = safe_float(self.last_info.get("x_pos"), 0.0)
-        y_pos = safe_float(self.last_info.get("y_pos"), PLAYER_SCREEN_Y_FALLBACK)
-        if y_pos <= 0 or y_pos > 240:
-            y_pos = PLAYER_SCREEN_Y_FALLBACK
+        y_pos = safe_float(self.last_info.get("y_pos"), MARIO_GROUND_Y_POS)
+        screen_foot_y = current_mario_screen_foot_y(self.env, self.last_info)
+        screen_x = current_mario_screen_x(self.env, self.last_info)
 
         self.recorded_steps.append({
             "step": self.step_idx,
             "x_pos": x_pos,
-            "screen_y": y_pos,
+            "world_x": x_pos,
+            "screen_x": screen_x,
+            "screen_foot_y": screen_foot_y,
+            "y_pos": y_pos,
+            "y_pixel": mario_y_pos_to_y_pixel(y_pos),
             "action": ACTION_NAMES[action_idx],
             "action_idx": action_idx,
         })
@@ -411,12 +443,14 @@ class MarioSession:
             frame = get_frame(self.env)
         else:
             frame = frame.copy()
-        ghost_state = self.ghost.get_state(self.step_idx, self.last_info)
+        camera_x = current_camera_x(self.env, self.last_info)
+        ghost_state = self.ghost.get_state(self.step_idx, self.last_info, camera_x)
         frame = draw_ghost_overlay(frame, ghost_state)
 
         info = sanitize_info(self.last_info)
         info["env_id"] = self.env_id
         info["run_mode"] = self.current_run_mode
+        info["camera_x"] = camera_x
 
         return frame, {
             "ok": True,
@@ -434,31 +468,245 @@ class MarioSession:
 session = MarioSession()
 
 
+def ghost_metadata(data: Dict) -> Dict:
+    """Return ghost metadata, accepting both saved file shapes."""
+    meta = data.get("meta")
+    if isinstance(meta, dict):
+        return {**data, **meta}
+    return data
+
+
+def ghost_time_text(meta: Dict) -> str:
+    if meta.get("finish_time_text"):
+        return str(meta["finish_time_text"])
+    if meta.get("duration_text"):
+        return str(meta["duration_text"])
+    if meta.get("time"):
+        return str(meta["time"])
+
+    elapsed_ms = safe_float(meta.get("finish_time_ms"), None)
+    if elapsed_ms is None:
+        elapsed_ms = safe_float(meta.get("elapsed_ms"), None)
+    if elapsed_ms is not None:
+        return format_duration_ms(max(0, int(elapsed_ms)))
+
+    return "--:--.---"
+
+
+def ghost_level_text(meta: Dict) -> str:
+    env_id = str(meta.get("env_id", ""))
+    if env_id.startswith("SuperMarioBros-"):
+        return env_id.replace("SuperMarioBros-", "").replace("-v", " v")
+
+    world = meta.get("world", "?")
+    stage = meta.get("stage", "?")
+    version = meta.get("version", "?")
+    return f"{world}-{stage} v{version}"
+
+
+def normalize_action_idx(value) -> int:
+    if isinstance(value, str):
+        if value in ACTION_NAMES:
+            return ACTION_NAMES.index(value)
+        value = safe_float(value, 0)
+    return max(0, min(len(ACTION_NAMES) - 1, int(safe_float(value, 0))))
+
+
+def mario_y_pos_to_y_pixel(y_pos: float) -> float:
+    return 255.0 - safe_float(y_pos, MARIO_GROUND_Y_POS)
+
+
+def mario_y_pos_to_screen_foot_y(y_pos: float) -> float:
+    y_pos = safe_float(y_pos, MARIO_GROUND_Y_POS)
+    return PLAYER_SCREEN_Y_FALLBACK - (y_pos - MARIO_GROUND_Y_POS)
+
+
+def mario_y_pixel_to_screen_foot_y(y_pixel: float) -> float:
+    return safe_float(y_pixel, MARIO_Y_PIXEL_GROUND) + MARIO_Y_PIXEL_TO_FOOT_OFFSET
+
+
+def infer_legacy_screen_y_mode(steps: List[Dict]) -> str:
+    """Classify old `screen_y` fields before per-step normalization."""
+    if any("screen_foot_y" in step or "y_pos" in step or "y_pixel" in step for step in steps):
+        return "explicit"
+
+    screen_y_values = [safe_float(step.get("screen_y"), None) for step in steps]
+    screen_y_values = [value for value in screen_y_values if value is not None]
+    if not screen_y_values:
+        return "screen_foot"
+
+    x_pos_count = sum("x_pos" in step for step in steps)
+    world_x_count = sum("world_x" in step for step in steps)
+
+    if x_pos_count and not world_x_count:
+        return "y_pos"
+    if world_x_count and not x_pos_count:
+        return "y_pixel"
+
+    groundish_count = sum(70 <= value <= 90 for value in screen_y_values)
+    pixel_groundish_count = sum(168 <= value <= 184 for value in screen_y_values)
+    if groundish_count > pixel_groundish_count:
+        return "y_pos"
+    if pixel_groundish_count > groundish_count:
+        return "y_pixel"
+    return "screen_foot"
+
+
+def normalize_replay_screen_foot_y(raw: Dict, screen_y_mode: str = "screen_foot") -> float:
+    screen_foot_y = safe_float(raw.get("screen_foot_y"), None)
+    if screen_foot_y is not None:
+        return screen_foot_y
+
+    y_pos = safe_float(raw.get("y_pos"), None)
+    if y_pos is not None:
+        return mario_y_pos_to_screen_foot_y(y_pos)
+
+    y_pixel = safe_float(raw.get("y_pixel"), None)
+    if y_pixel is not None:
+        return mario_y_pixel_to_screen_foot_y(y_pixel)
+
+    screen_y = safe_float(raw.get("screen_y"), None)
+    if screen_y is None:
+        return PLAYER_SCREEN_Y_FALLBACK
+
+    if screen_y_mode == "y_pos":
+        return mario_y_pos_to_screen_foot_y(screen_y)
+    if screen_y_mode == "y_pixel":
+        return mario_y_pixel_to_screen_foot_y(screen_y)
+
+    # Older hand-exported files used `screen_y` for SMB's RAM y pixel
+    # (ground around 176), while early web_mario files used it for y_pos
+    # (ground around 79). Distinguish them by the companion x field shape.
+    if "world_x" in raw and "x_pos" not in raw:
+        return mario_y_pixel_to_screen_foot_y(screen_y)
+    if screen_y <= 160:
+        return mario_y_pos_to_screen_foot_y(screen_y)
+    return screen_y
+
+
+def repair_legacy_y_pos_fallback_runs(steps: List[Dict]) -> None:
+    """Smooth old recordings where invalid y_pos was clamped to 207."""
+    index = 0
+    while index < len(steps):
+        screen_y = safe_float(steps[index].get("screen_y"), None)
+        if screen_y != LEGACY_REPLAY_Y_POS_FALLBACK:
+            index += 1
+            continue
+
+        run_start = index
+        while (
+            index < len(steps)
+            and safe_float(steps[index].get("screen_y"), None) == LEGACY_REPLAY_Y_POS_FALLBACK
+        ):
+            index += 1
+        run_end = index
+        run_length = run_end - run_start
+
+        if run_length < 3 or run_start == 0 or run_end >= len(steps):
+            continue
+
+        previous_y = safe_float(steps[run_start - 1].get("screen_y"), None)
+        next_y = safe_float(steps[run_end].get("screen_y"), None)
+        if previous_y is None or next_y is None:
+            continue
+        if previous_y < 225 or next_y < 225:
+            continue
+
+        for offset, step_index in enumerate(range(run_start, run_end), start=1):
+            t = offset / (run_length + 1)
+            interpolated_y = previous_y + (next_y - previous_y) * t
+            steps[step_index]["screen_foot_y"] = mario_y_pos_to_screen_foot_y(interpolated_y)
+
+
+def get_env_ram(env) -> Optional[np.ndarray]:
+    raw_env = getattr(env, "unwrapped", None)
+    ram = getattr(raw_env, "ram", None)
+    if ram is None:
+        return None
+    return ram
+
+
+def current_mario_screen_x(env, info: Dict) -> float:
+    ram = get_env_ram(env)
+    if ram is not None:
+        return float((int(ram[0x86]) - int(ram[0x071c])) % 256)
+    return safe_float(info.get("x_pos"), 0.0) - fallback_camera_x(safe_float(info.get("x_pos"), 0.0))
+
+
+def current_camera_x(env, info: Dict) -> float:
+    ram = get_env_ram(env)
+    if ram is not None:
+        world_x = float(int(ram[0x6d]) * 0x100 + int(ram[0x86]))
+        return world_x - current_mario_screen_x(env, info)
+    return fallback_camera_x(safe_float(info.get("x_pos"), 0.0))
+
+
+def current_mario_screen_foot_y(env, info: Dict) -> float:
+    ram = get_env_ram(env)
+    if ram is not None:
+        return mario_y_pixel_to_screen_foot_y(float(int(ram[0x03b8])))
+    return mario_y_pos_to_screen_foot_y(safe_float(info.get("y_pos"), MARIO_GROUND_Y_POS))
+
+
+def fallback_camera_x(current_player_world_x: float) -> float:
+    return max(0.0, safe_float(current_player_world_x, 0.0) - PLAYER_SCREEN_X)
+
+
+def ghost_number_from_text(value) -> Optional[int]:
+    text = str(value or "")
+    if len(text) < 2 or text[0].upper() != "G":
+        return None
+
+    digits = []
+    for char in text[1:]:
+        if not char.isdigit():
+            break
+        digits.append(char)
+
+    if not digits:
+        return None
+    return int("".join(digits))
+
+
 def sanitize_replay_steps(steps: List[Dict]) -> List[Dict]:
     """Sort and lightly clean replay steps to reduce random ghost teleports."""
     cleaned: List[Dict] = []
+    screen_y_mode = infer_legacy_screen_y_mode(steps)
     for raw in steps:
         try:
             step_num = int(raw.get("step", len(cleaned)))
             x_pos = safe_float(raw.get("x_pos"), None)
+            if x_pos is None:
+                x_pos = safe_float(raw.get("world_x"), None)
             if x_pos is None or x_pos < 0:
                 continue
             item = dict(raw)
             item["step"] = step_num
             item["x_pos"] = x_pos
+            item["screen_foot_y"] = normalize_replay_screen_foot_y(raw, screen_y_mode)
+            item["action_idx"] = normalize_action_idx(raw.get("action_idx", raw.get("action", 0)))
             cleaned.append(item)
         except Exception:
             continue
     cleaned.sort(key=lambda item: int(item.get("step", 0)))
+    if screen_y_mode == "y_pos":
+        repair_legacy_y_pos_fallback_runs(cleaned)
     return cleaned
 
 
 def get_next_ghost_number() -> int:
     highest = 0
-    for path in GHOST_DIR.glob("G*_w*.json"):
-        stem = path.stem
-        if len(stem) >= 4 and stem[0] == "G" and stem[1:4].isdigit():
-            highest = max(highest, int(stem[1:4]))
+    for path in GHOST_DIR.glob("*.json"):
+        number = ghost_number_from_text(path.stem)
+        if number is None:
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                meta = ghost_metadata(data)
+                number = ghost_number_from_text(meta.get("ghost_id") or meta.get("id"))
+            except Exception:
+                number = None
+        if number is not None:
+            highest = max(highest, number)
     return highest + 1
 
 
@@ -525,7 +773,12 @@ def draw_ghost_overlay(frame: np.ndarray, ghost: GhostState) -> np.ndarray:
     if x < -40 or x > image.width + 40:
         return frame
 
-    sprite = make_mario_ghost_sprite(ghost.action_idx, ghost.facing_left, getattr(ghost, "step_idx", 0))
+    sprite = make_mario_ghost_sprite(
+        ghost.action_idx,
+        ghost.facing_left,
+        getattr(ghost, "step_idx", 0),
+        getattr(ghost, "airborne", False),
+    )
     # x is the approximate center of Mario; y is the foot/bottom position.
     paste_x = x - sprite.width // 2
     paste_y = y - sprite.height
@@ -576,16 +829,20 @@ def load_mario_ghost_sprites() -> List[Image.Image]:
     return sprites
 
 
-def make_mario_ghost_sprite(action_idx: int = 0, facing_left: bool = False, step_idx: int = 0) -> Image.Image:
+def make_mario_ghost_sprite(
+    action_idx: int = 0,
+    facing_left: bool = False,
+    step_idx: int = 0,
+    airborne: bool = False,
+) -> Image.Image:
     """Return an actual Mario frame from the provided sprite sheet.
 
-    This no longer draws a Mario-like placeholder. It uses extracted pixel-art
-    frames from mario_ghost_sprites.png, which is generated from the provided
-    sprite sheet image.
+    It uses extracted pixel-art frames from mario_ghost_sprites.png, 
+    which is generated from the provided sprite sheet image.
     """
     sprites = load_mario_ghost_sprites()
 
-    jumping = action_idx in (2, 4, 5)
+    jumping = airborne or action_idx in (2, 4, 5)
     running_or_walking = action_idx in (1, 2, 3, 4, 6)
 
     if jumping and len(sprites) > 5:
@@ -603,16 +860,13 @@ def make_mario_ghost_sprite(action_idx: int = 0, facing_left: bool = False, step
 
     return sprite
 
-def world_x_to_screen_x(ghost_world_x: float, current_player_world_x: float) -> float:
+def world_x_to_screen_x(ghost_world_x: float, camera_x: float) -> float:
     """Convert a world-space x position into the current screen x position.
 
-    `x_pos` from gym is world-space. The rendered frame is screen-space.
-    The camera is roughly 0 near the start, then follows Mario after he reaches
-    a screen anchor. This estimate is much more accurate than assuming Mario is
-    always at the anchor position.
+    `x_pos` from gym is world-space. The rendered frame is screen-space, so
+    replay world positions need to be offset by the current camera/viewport.
     """
-    camera_x = max(0.0, current_player_world_x - PLAYER_SCREEN_X)
-    return ghost_world_x - camera_x + GHOST_SCREEN_X_OFFSET
+    return ghost_world_x - camera_x + MARIO_SPRITE_CENTER_X_OFFSET + GHOST_SCREEN_X_OFFSET
 
 def safe_float(value, default: float = 0.0) -> float:
     try:

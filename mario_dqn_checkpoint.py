@@ -111,6 +111,8 @@ def export_agent(agent: MarioCNNTransformerDQNAgent) -> dict[str, Any]:
         "hyperparams": {
             "lr": agent.lr,
             "gamma": agent.gamma,
+            "epsilon_end": agent.epsilon_end,
+            "epsilon_decay": agent.epsilon_decay,
             "batch_size": agent.batch_size,
             "target_sync_every": agent.target_sync_every,
             "grad_clip": agent.grad_clip,
@@ -163,12 +165,14 @@ def load_agent(
         grad_clip=float(hp.get("grad_clip", 1.0)),
         reward_clip=float(hp.get("reward_clip", 5.0)),
         epsilon_start=float(payload.get("epsilon", 0.05)),
-        epsilon_end=float(payload.get("epsilon", 0.05)),
-        epsilon_decay=1.0,
+        epsilon_end=float(hp.get("epsilon_end", 0.05)),
+        epsilon_decay=float(hp.get("epsilon_decay", 0.995)),
     )
     agent.train_steps = int(payload.get("train_steps", 0))
     if epsilon is not None:
         agent.epsilon = epsilon
+        agent.epsilon_end = epsilon
+        agent.epsilon_decay = 1.0
     agent._sync_target()
     agent.meta = payload.get("meta", {})
     return agent

@@ -33,19 +33,34 @@ class MarioDQNTrainingTests(unittest.TestCase):
         self.assertGreater(with_flag, no_flag)
 
     def test_checkpoint_roundtrip(self):
-        agent = build_fresh_agent(action_dim=7, fast_transformer=True, buffer_size=32, batch_size=4)
+        agent = build_fresh_agent(
+            action_dim=7,
+            fast_transformer=True,
+            buffer_size=32,
+            batch_size=4,
+            epsilon_start=0.75,
+            epsilon_end=0.12,
+            epsilon_decay=0.91,
+        )
+        agent.epsilon = 0.44
         state = np.random.rand(4, 84, 84).astype(np.float32)
         before = agent.q_values(state).copy()
 
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "roundtrip.npy"
             save_agent(agent, path, meta={"level": "1-1", "score": 42.0})
-            loaded = load_agent(path, epsilon=0.0)
-            after = loaded.q_values(state)
+            resumed = load_agent(path)
+            viewer = load_agent(path, epsilon=0.0)
+            after = viewer.q_values(state)
 
         np.testing.assert_allclose(before, after, rtol=1e-5, atol=1e-5)
-        self.assertEqual(loaded.meta.get("level"), "1-1")
-        self.assertEqual(loaded.epsilon, 0.0)
+        self.assertEqual(resumed.epsilon, 0.44)
+        self.assertEqual(resumed.epsilon_end, 0.12)
+        self.assertEqual(resumed.epsilon_decay, 0.91)
+        self.assertEqual(viewer.meta.get("level"), "1-1")
+        self.assertEqual(viewer.epsilon, 0.0)
+        self.assertEqual(viewer.epsilon_end, 0.0)
+        self.assertEqual(viewer.epsilon_decay, 1.0)
 
 
 if __name__ == "__main__":

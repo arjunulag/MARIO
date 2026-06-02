@@ -1,241 +1,510 @@
 :root {
-  --bg-1: #0f172a;
-  --bg-2: #111827;
-  --card: rgba(15, 23, 42, 0.86);
-  --card-border: rgba(148, 163, 184, 0.22);
-  --text: #f8fafc;
-  --muted: #94a3b8;
-  --accent: #38bdf8;
-  --accent-strong: #0ea5e9;
-  --danger: #f97316;
+  --page: #e8e6df;
+  --ink: #0a0a0a;
+  --muted: #4f4f4f;
+  --line: #0a0a0a;
+  --panel: #f8f7f2;
+  --soft: #d8d6cf;
+  --slot: #bebbb2;
+  --radius: 4px;
+  --pad: clamp(10px, 1.4vw, 18px);
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  min-width: 320px;
+  background: var(--page);
+}
+
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    linear-gradient(135deg, var(--bg-1), var(--bg-2));
-  color: var(--text);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--page);
+  font-family: "Trebuchet MS", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  letter-spacing: 0;
 }
 
-.app-shell {
-  width: min(1180px, 96vw);
-  margin: 0 auto;
-  padding: 28px 0 40px;
-}
-
-.top-bar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: 24px;
-  margin-bottom: 16px;
-}
-
-.eyebrow {
-  margin: 0 0 4px;
-  color: var(--accent);
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-
-h1 {
-  margin: 0;
-  font-size: clamp(2rem, 4vw, 3.4rem);
-  line-height: 1;
-  letter-spacing: -0.05em;
-}
-
-.dashboard {
-  display: grid;
-  grid-template-columns: 1.25fr 1fr 1fr;
-  gap: 14px;
-  align-items: stretch;
-  margin-bottom: 18px;
-}
-
-.card,
-.timer-panel,
-.game-card {
-  background: var(--card);
-  border: 1px solid var(--card-border);
-  border-radius: 18px;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(10px);
-}
-
-.card {
-  padding: 16px;
-}
-
-.card-title {
-  margin-bottom: 10px;
-  color: var(--muted);
-  font-size: 0.75rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.control-row,
-.button-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.button-row {
-  margin-top: 12px;
-}
-
-label {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-select,
-button {
+button,
+select {
   font: inherit;
 }
 
-select {
-  display: block;
-  min-width: 76px;
-  margin-top: 6px;
-  padding: 8px 10px;
-  color: var(--text);
-  background: #020617;
-  border: 1px solid #334155;
-  border-radius: 10px;
-  outline: none;
+button,
+select,
+summary,
+a {
+  -webkit-tap-highlight-color: transparent;
 }
 
-button {
-  padding: 10px 14px;
-  color: var(--text);
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 12px;
-  cursor: pointer;
-  font-weight: 800;
-  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 
-button:hover {
-  transform: translateY(-1px);
-  border-color: var(--accent);
+.app-shell {
+  width: min(1320px, calc(100vw - 32px));
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 16px 0 20px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 12px;
 }
 
-.primary-btn {
-  background: linear-gradient(135deg, var(--accent-strong), #2563eb);
-  border-color: rgba(125, 211, 252, 0.8);
-}
-
-.timer-panel {
-  min-width: 340px;
-  padding: 14px 18px;  display: flex;
+.top-bar {
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  font-variant-numeric: tabular-nums;
+  gap: 12px;
+  padding: 8px;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--panel);
 }
 
-.timer-label {
-  display: block;
-  color: var(--muted);
-  font-size: 0.72rem;
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 1rem;
+  font-weight: 900;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
 }
 
-.timer-value {
-  display: block;
-  font-family: Consolas, Monaco, monospace;
-  font-size: clamp(1.8rem, 3vw, 2.65rem);
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  color: var(--panel);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 1.1rem;
   font-weight: 900;
   line-height: 1;
-  color: #e0f2fe;
-  text-shadow: 0 0 22px rgba(56, 189, 248, 0.25);
 }
 
-.timer-value.small {
-  font-size: 1.25rem;
-  color: #bae6fd;
+.status-strip {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 7px 10px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--soft);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: right;
 }
 
-.movement-line {
-  margin: 4px 0;
-  color: #dbeafe;
-  font-weight: 650;
+.play-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 12px;
+  align-items: start;
 }
 
-.status-text {
-  margin: 12px 0 0;
-  padding-top: 10px;
-  color: #fed7aa;
-  border-top: 1px solid rgba(148, 163, 184, 0.18);
-  font-size: 0.92rem;
+.stage-panel,
+.side-panel {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: var(--radius);
 }
 
-.debug-card pre {
-  margin: 0;
-  min-height: 92px;
-  color: #cbd5e1;
-  white-space: pre-wrap;
-  font: 0.84rem/1.35 Consolas, Monaco, monospace;
+.stage-panel {
+  min-width: 0;
+  padding: var(--pad);
+  border-width: 2px;
 }
 
-.game-card {
-  padding: 18px;
+.console-rail {
+  display: grid;
+  grid-template-columns: 1fr 42px 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
-.floating-timer {
-  width: min(520px, 92%);
-  margin: 18px auto 0;
+.console-rail span {
+  height: 14px;
+  border: 1px solid var(--ink);
+  background:
+    repeating-linear-gradient(90deg, var(--slot) 0 10px, var(--panel) 10px 20px);
 }
 
-.screen-bezel {
-  width: min(512px, 100%);
+.console-rail span:nth-child(2) {
+  background: var(--ink);
+}
+
+.screen-frame {
+  width: min(100%, calc((100vh - 164px) * 256 / 240));
+  max-width: 960px;
   margin: 0 auto;
-  padding: 14px;
-  background: linear-gradient(180deg, #020617, #111827);
-  border: 1px solid #334155;
-  border-radius: 22px;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 24px 60px rgba(0, 0, 0, 0.45);
+  padding: 10px;
+  border: 3px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--soft);
+}
+
+.screen-label {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 2px 8px;
+  color: var(--ink);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 canvas {
   display: block;
   width: 100%;
   aspect-ratio: 256 / 240;
-  background: black;
-  border-radius: 10px;
+  background: #000000;
+  border: 8px solid var(--ink);
+  border-radius: 2px;
   image-rendering: pixelated;
+  contain: strict;
 }
 
-@media (max-width: 920px) {
-  .dashboard {
+.timer-panel {
+  width: min(100%, 960px);
+  margin: 10px auto 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, auto);
+  gap: 6px;
+}
+
+.timer-panel > div {
+  min-width: 0;
+  padding: 10px 12px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.timer-label,
+.panel-heading,
+label,
+summary {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.timer-value {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: clamp(1.8rem, 4vw, 3.4rem);
+  font-weight: 900;
+  line-height: 0.95;
+  font-variant-numeric: tabular-nums;
+}
+
+.timer-value.small {
+  font-size: clamp(1.15rem, 2vw, 1.8rem);
+}
+
+.side-panel {
+  position: sticky;
+  top: 20px;
+  display: grid;
+  gap: 1px;
+  overflow: hidden;
+  background: var(--ink);
+  border-width: 2px;
+}
+
+.panel-block {
+  padding: 14px;
+  background: var(--panel);
+}
+
+.controller-face {
+  min-height: 112px;
+  display: grid;
+  grid-template-columns: 98px 1fr 98px;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  background: var(--soft);
+}
+
+.d-pad {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  margin: 0 auto;
+}
+
+.d-pad::before,
+.d-pad::after {
+  content: "";
+  position: absolute;
+  background: var(--ink);
+  border-radius: 2px;
+}
+
+.d-pad::before {
+  width: 28px;
+  height: 76px;
+  left: 24px;
+  top: 0;
+}
+
+.d-pad::after {
+  width: 76px;
+  height: 28px;
+  left: 0;
+  top: 24px;
+}
+
+.d-pad span {
+  position: absolute;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  left: 26px;
+  top: 26px;
+  border: 1px solid var(--panel);
+  border-radius: 2px;
+}
+
+.select-start {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.select-start span {
+  width: 38px;
+  height: 14px;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  background: var(--panel);
+}
+
+.ab-pad {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.ab-pad span {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  color: var(--panel);
+  background: var(--ink);
+  border-radius: 50%;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.control-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+}
+
+.wide-control {
+  margin-top: 10px;
+}
+
+select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 32px 0 10px;
+  color: var(--ink);
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.action-block {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+button {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px;
+  color: var(--ink);
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.86rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+button:hover {
+  color: var(--panel);
+  background: var(--ink);
+}
+
+button:hover kbd {
+  color: var(--ink);
+  background: var(--panel);
+  border-color: var(--panel);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+.primary-btn {
+  color: var(--panel);
+  background: var(--ink);
+}
+
+.primary-btn kbd {
+  color: var(--ink);
+  background: var(--panel);
+  border-color: var(--panel);
+}
+
+kbd {
+  min-width: 24px;
+  min-height: 22px;
+  display: inline-grid;
+  place-items: center;
+  padding: 2px 6px;
+  color: var(--panel);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 3px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.run-info {
+  padding: 0;
+}
+
+summary {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+summary::after {
+  content: "+";
+  margin-left: auto;
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.run-info[open] summary::after {
+  content: "-";
+}
+
+.run-info pre {
+  margin: 0;
+  padding: 0 14px 14px;
+  color: var(--ink);
+  white-space: pre-wrap;
+  font: 0.82rem/1.45 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+@media (max-width: 980px) {
+  .app-shell {
+    width: min(100vw - 20px, 720px);
+    padding: 10px 0 18px;
+  }
+
+  .top-bar,
+  .play-layout {
     grid-template-columns: 1fr;
   }
 
-  .top-bar {
-    display: grid;
+  .status-strip {
+    justify-content: flex-start;
+    text-align: left;
   }
 
-  .timer-panel {
-    min-width: 0;
+  .side-panel {
+    position: static;
+  }
+
+  .screen-frame {
     width: 100%;
+  }
+
+  .controller-face {
+    grid-template-columns: 84px 1fr 84px;
+  }
+}
+
+@media (max-width: 520px) {
+  .timer-panel,
+  .control-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .controller-face {
+    grid-template-columns: 1fr;
+    justify-items: center;
   }
 }
