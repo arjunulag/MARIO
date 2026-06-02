@@ -3,101 +3,130 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Super Mario Web Race</title>
+    <title>Mario</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main class="app-shell">
       <header class="top-bar">
-        <div>
-          <p class="eyebrow">Mario AI Race</p>
-          <h1>Super Mario Web Race</h1>
-        </div>
+        <a class="brand" href="#" aria-label="Mario home">
+          <span class="brand-mark" aria-hidden="true">M</span>
+          <span>Mario / NES</span>
+        </a>
+        <div class="status-strip" id="status">Ready. World 1-1 v0.</div>
       </header>
 
-      <section class="dashboard">
-        <section class="card controls-card">
-          <div class="card-title">Level</div>
-          <div class="control-row">
-            <label>
-              World
-              <select id="worldSelect">
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
-                <option value="4">4</option>
-                <option value="5">5</option>
-                <option value="6">6</option>
-                <option value="7">7</option>
-                <option value="8">8</option>
-              </select>
-            </label>
+      <section class="play-layout" aria-label="Mario player">
+        <section class="stage-panel" aria-label="Game screen">
+          <div class="console-rail" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div class="screen-frame">
+            <div class="screen-label" aria-hidden="true">
+              <span>8-Bit Video</span>
+              <span>NTSC</span>
+            </div>
+            <canvas id="gameCanvas" width="256" height="240"></canvas>
+          </div>
 
-            <label>
-              Stage
-              <select id="stageSelect">
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
-                <option value="4">4</option>
-              </select>
-            </label>
+          <section class="timer-panel" aria-label="Speedrun timer">
+            <div>
+              <span class="timer-label">Time</span>
+              <span id="runTimer" class="timer-value">00:00.000</span>
+            </div>
+            <div>
+              <span class="timer-label">Best</span>
+              <span id="bestTimer" class="timer-value small">--:--.---</span>
+            </div>
+          </section>
+        </section>
 
-            <label>
-              Version
-              <select id="versionSelect">
-                <option value="0">v0</option>
-                <option value="1">v1</option>
-                <option value="2">v2</option>
-                <option value="3">v3</option>
-              </select>
-            </label>
+        <aside class="side-panel" aria-label="Game controls">
+          <div class="controller-face" aria-hidden="true">
+            <div class="d-pad">
+              <span></span>
+            </div>
+            <div class="select-start">
+              <span></span>
+              <span></span>
+            </div>
+            <div class="ab-pad">
+              <span>A</span>
+              <span>B</span>
+            </div>
+          </div>
 
-            <label>
+          <section class="panel-block">
+            <div class="panel-heading">
+              <span>Level</span>
+            </div>
+            <div class="control-grid">
+              <label>
+                World
+                <select id="worldSelect" aria-keyshortcuts="Digit1 Digit2 Digit3 Digit4 Digit5 Digit6 Digit7 Digit8">
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
+                  <option value="6">6</option>
+                  <option value="7">7</option>
+                  <option value="8">8</option>
+                </select>
+              </label>
+
+              <label>
+                Stage
+                <select id="stageSelect" aria-keyshortcuts="BracketLeft BracketRight">
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                </select>
+              </label>
+
+              <label>
+                Version
+                <select id="versionSelect" aria-keyshortcuts="KeyV">
+                  <option value="0">v0</option>
+                  <option value="1">v1</option>
+                  <option value="2">v2</option>
+                  <option value="3">v3</option>
+                </select>
+              </label>
+
+              <label>
+                Mode
+                <select id="modeSelect" aria-keyshortcuts="KeyM">
+                  <option value="stable" selected>Stable 36</option>
+                  <option value="laptop">Laptop 24</option>
+                  <option value="competition">Competition 60</option>
+                </select>
+              </label>
+            </div>
+
+            <label class="wide-control">
               Ghost
-              <select id="ghostSelect">
+              <select id="ghostSelect" aria-keyshortcuts="KeyG">
                 <option value="none">No ghost</option>
                 <option value="demo">Demo ghost</option>
               </select>
             </label>
-          </div>
+          </section>
 
-          <div class="button-row">
-            <button id="startBtn" class="primary-btn">Start Level</button>
-            <button id="pauseBtn">Pause</button>
-            <button id="resetBtn">Reset</button>
-          </div>
-        </section>
+          <section class="panel-block action-block" aria-label="Run actions">
+            <button id="startBtn" class="primary-btn" aria-keyshortcuts="Enter">Start <kbd>Enter</kbd></button>
+            <button id="pauseBtn" aria-keyshortcuts="KeyP">Pause <kbd>P</kbd></button>
+            <button id="resetBtn" aria-keyshortcuts="KeyR">Reset <kbd>R</kbd></button>
+          </section>
 
-        <section class="card info-card">
-          <div class="card-title">Movement</div>
-          <p class="movement-line">Arrow keys / WASD = move</p>
-          <p class="movement-line">Space / Z / J = jump</p>
-          <p class="movement-line">Shift / X / K = run</p>
-          <p id="status" class="status-text">Choose a level and click Start Level.</p>
-        </section>
-
-        <section class="card debug-card">
-          <div class="card-title">Run Info</div>
-          <pre id="debug"></pre>
-        </section>
-      </section>
-
-      <section class="game-card">
-        <div class="screen-bezel">
-          <canvas id="gameCanvas" width="256" height="240"></canvas>
-        </div>
-
-        <section class="timer-panel floating-timer" aria-label="Speedrun timer">
-          <div>
-            <span class="timer-label">Time</span>
-            <span id="runTimer" class="timer-value">00:00.000</span>
-          </div>
-          <div>
-            <span class="timer-label">Best</span>
-            <span id="bestTimer" class="timer-value small">--:--.---</span>
-          </div>
-        </section>
+          <details class="panel-block run-info">
+            <summary>Run Info</summary>
+            <pre id="debug"></pre>
+          </details>
+        </aside>
       </section>
     </main>
 
