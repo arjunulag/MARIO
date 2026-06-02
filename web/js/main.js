@@ -1,209 +1,285 @@
 /* ============================================================
    main.js — Wire up the play page
-   ------------------------------------------------------------
-   - Reads keyboard input
-   - Runs the game loop at a fixed 60 Hz tick (decoupled from
-     the browser's variable rAF rate)
-   - Updates the HUD + sidebar metadata
-   - Handles win / lose / restart / pause / ghost-toggle
    ============================================================ */
 
 (function () {
   'use strict';
 
-  const { TILE, VIEW_W, VIEW_H, buildWorld, resetWorld, step, drawWorld } = window.Game;
+  const { TILE, VIEW_W, VIEW_H, buildWorld, step, drawWorld } = window.Game;
 
   const FRAME_MS = 1000 / 60;
+  const BEST_TIME_KEY = 'mario-play-best-1-1';
 
-  // --- DOM refs ----------------------------------------------
   const canvas = document.getElementById('game');
-  const ctx    = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d');
 
-  const elTime  = document.getElementById('hud-time');
-  const elCoins = document.getElementById('hud-coins');
-  const elScore = document.getElementById('hud-score');
-  const elDiff  = document.getElementById('hud-diff');
+  const elTime = document.getElementById('stat-time');
+  const elBest = document.getElementById('stat-best');
+  const elCoins = document.getElementById('stat-coins');
+  const elGap = document.getElementById('stat-gap');
 
-  const elOverlay      = document.getElementById('overlay');
-  const elOverTitle    = document.getElementById('overlay-title');
-  const elOverLine     = document.getElementById('overlay-line');
-  const elOverTime     = document.getElementById('overlay-time');
-  const elOverCoins    = document.getElementById('overlay-coins');
-  const elOverResult   = document.getElementById('overlay-result');
-  const elOverRestart  = document.getElementById('overlay-restart');
+  const elOverlay = document.getElementById('overlay');
+  const elOverTitle = document.getElementById('overlay-title');
+  const elOverLine = document.getElementById('overlay-line');
+  const elOverTime = document.getElementById('overlay-time');
+  const elOverBest = document.getElementById('overlay-best');
+  const elOverCoins = document.getElementById('overlay-coins');
+  const elOverResult = document.getElementById('overlay-result');
+  const elOverRecord = document.getElementById('overlay-record');
+  const elOverRestart = document.getElementById('overlay-restart');
 
-  const elGhostMeta   = document.getElementById('ghost-meta');
+  const elGhostMeta = document.getElementById('ghost-meta');
   const elGhostStatus = document.getElementById('ghost-status');
   const elGhostToggle = document.getElementById('ghost-toggle');
 
-  const btnPause   = document.getElementById('pause-btn');
-  const lblPause   = document.getElementById('pause-label');
+  const btnPause = document.getElementById('pause-btn');
+  const lblPause = document.getElementById('pause-label');
   const btnRestart = document.getElementById('restart-btn');
 
-  // --- Keyboard ----------------------------------------------
   const keys = new Set();
   const KEY_MAP = {
-    ArrowLeft: 'left',  KeyA: 'left',
+    ArrowLeft: 'left', KeyA: 'left',
     ArrowRight: 'right', KeyD: 'right',
-    ArrowUp: 'jump',    KeyW: 'jump',  Space: 'jump',  KeyZ: 'jump',
+    ArrowUp: 'jump', KeyW: 'jump', Space: 'jump', KeyZ: 'jump',
     ShiftLeft: 'sprint', ShiftRight: 'sprint',
   };
 
-  function onKeyDown(e) {
-    const action = KEY_MAP[e.code];
-    if (action) {
-      keys.add(action);
-      if (action === 'jump' || action === 'sprint' || action === 'left' || action === 'right') {
-        e.preventDefault();
-      }
-    }
-    if (e.code === 'KeyR') restart();
-    else if (e.code === 'KeyP') togglePause();
-    else if (e.code === 'KeyG') {
-      elGhostToggle.checked = !elGhostToggle.checked;
-      applyGhostToggle();
-    }
-  }
-  function onKeyUp(e) {
-    const action = KEY_MAP[e.code];
-    if (action) keys.delete(action);
-  }
-  function getPlayerInputs() { return keys; }
-
-  // --- Game state --------------------------------------------
   let world = buildWorld();
   let ghostPolicy = window.Ghost.scriptedPolicy;
   let ghostMeta = window.Ghost.SAMPLE_META;
 
-  // Race timing
   let runStarted = false;
   let runStartMs = 0;
   let runEndMs = 0;
-
-  // Pause
+  let bestTimeSec = loadBestTimeSec();
   let paused = false;
+  let overlayTimerId = null;
 
-  // Ghost toggle
-  function applyGhostToggle() {
-    world.ghostEnabled = elGhostToggle.checked;
-    world.ghostVisible = elGhostToggle.checked;
-    elGhostStatus.textContent = elGhostToggle.checked ? 'Active' : 'Paused';
-    elGhostStatus.style.background = elGhostToggle.checked
-      ? 'rgba(6, 214, 160, 0.1)' : 'rgba(255, 209, 102, 0.1)';
-    elGhostStatus.style.color = elGhostToggle.checked
-      ? 'var(--green)' : 'var(--gold)';
+  let lastMs = performance.now();
+  let acc = 0;
+
+  function formatTimeSec(seconds) {
+    return Number(seconds).toFixed(2);
   }
 
-  // Pause toggle
+  function formatBestDisplay(seconds) {
+    return seconds === null ? '—' : formatTimeSec(seconds);
+  }
+
+  function loadBestTimeSec() {
+    try {
+      const raw = localStorage.getItem(BEST_TIME_KEY);
+      if (raw === null) return null;
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value <= 0) return null;
+      return value;
+    } catch (err) {
+      console.warn('[best time] could not read saved time', err);
+      return null;
+    }
+  }
+
+  function persistBestTimeSec(seconds) {
+    try {
+      localStorage.setItem(BEST_TIME_KEY, String(seconds));
+      return true;
+    } catch (err) {
+      console.warn('[best time] could not save time', err);
+      return false;
+    }
+  }
+
+  function tryRecordBestTime(seconds) {
+    if (!Number.isFinite(seconds) || seconds <= 0) return false;
+    if (bestTimeSec !== null && seconds >= bestTimeSec) return false;
+    bestTimeSec = seconds;
+    persistBestTimeSec(seconds);
+    return true;
+  }
+
+  function renderBestTime() {
+    elBest.textContent = formatBestDisplay(bestTimeSec);
+  }
+
+  function applyGhostToggle() {
+    const on = elGhostToggle.checked;
+    world.ghostEnabled = on;
+    world.ghostVisible = on;
+    elGhostStatus.textContent = on ? 'Active' : 'Off';
+    elGhostStatus.classList.toggle('is-off', !on);
+  }
+
   function togglePause() {
     if (world.state !== 'playing') return;
     paused = !paused;
     lblPause.textContent = paused ? 'Resume' : 'Pause';
   }
 
-  // Restart
+  function clearOverlayTimer() {
+    if (overlayTimerId !== null) {
+      clearTimeout(overlayTimerId);
+      overlayTimerId = null;
+    }
+  }
+
+  function hideOverlay() {
+    clearOverlayTimer();
+    elOverlay.hidden = true;
+  }
+
   function restart() {
-    resetWorld(world);
+    clearOverlayTimer();
+    keys.clear();
+
+    const ghostOn = elGhostToggle.checked;
+    world = buildWorld();
+    world.ghostEnabled = ghostOn;
+    world.ghostVisible = ghostOn;
+
     runStarted = false;
     runStartMs = 0;
     runEndMs = 0;
     paused = false;
+    acc = 0;
+    lastMs = performance.now();
+
     lblPause.textContent = 'Pause';
-    elOverlay.classList.remove('show');
+    hideOverlay();
     applyGhostToggle();
+    updateHud(lastMs);
+    drawWorld(ctx, world);
   }
 
-  // --- Sidebar render ----------------------------------------
+  function onKeyDown(e) {
+    if (e.code === 'KeyR') {
+      e.preventDefault();
+      restart();
+      return;
+    }
+
+    const action = KEY_MAP[e.code];
+    if (action) {
+      keys.add(action);
+      if (action === 'jump' || action === 'sprint' || action === 'left' || action === 'right') {
+        e.preventDefault();
+      }
+      return;
+    }
+
+    if (e.code === 'KeyP') {
+      e.preventDefault();
+      togglePause();
+    } else if (e.code === 'KeyG') {
+      e.preventDefault();
+      elGhostToggle.checked = !elGhostToggle.checked;
+      applyGhostToggle();
+    }
+  }
+
+  function onKeyUp(e) {
+    const action = KEY_MAP[e.code];
+    if (action) keys.delete(action);
+  }
+
+  function getPlayerInputs() {
+    return keys;
+  }
+
   function renderGhostMeta() {
     elGhostMeta.innerHTML =
       '<strong>' + escapeHtml(ghostMeta.name) + '</strong>' +
       escapeHtml(ghostMeta.description);
   }
+
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
-  // --- HUD ---------------------------------------------------
+  function elapsedSec(now) {
+    if (!runStarted) return 0;
+    if (world.state === 'playing') return (now - runStartMs) / 1000;
+    return (runEndMs - runStartMs) / 1000;
+  }
+
   function updateHud(now) {
-    // Time
-    let elapsed;
-    if (!runStarted) elapsed = 0;
-    else if (world.state === 'playing') elapsed = (now - runStartMs) / 1000;
-    else elapsed = (runEndMs - runStartMs) / 1000;
-    elTime.textContent = elapsed.toFixed(2);
-
+    const elapsed = elapsedSec(now);
+    elTime.textContent = formatTimeSec(elapsed);
     elCoins.textContent = world.coinCount;
-    elScore.textContent = world.score;
 
-    // Differential = player.x - ghost.x in tiles
     if (world.ghostEnabled) {
       const dxTiles = (world.player.x - world.ghost.x) / TILE;
       const sign = dxTiles >= 0 ? '+' : '−';
-      elDiff.textContent = sign + Math.abs(dxTiles).toFixed(1);
-      elDiff.className = 'val ' + (dxTiles >= 0 ? 'green' : 'red');
+      elGap.textContent = sign + Math.abs(dxTiles).toFixed(1);
+      elGap.classList.remove('is-ahead', 'is-behind');
+      elGap.classList.add(dxTiles >= 0 ? 'is-ahead' : 'is-behind');
     } else {
-      elDiff.textContent = '—';
-      elDiff.className = 'val';
+      elGap.textContent = '—';
+      elGap.classList.remove('is-ahead', 'is-behind');
     }
   }
 
-  // --- End-of-run overlay ------------------------------------
   function showOverlay() {
+    overlayTimerId = null;
     const elapsed = (runEndMs - runStartMs) / 1000;
-    elOverTime.textContent  = elapsed.toFixed(2) + 's';
+    const cleared = world.state === 'won' && runStarted && runEndMs > runStartMs;
+    let isNewBest = false;
+
+    if (cleared) {
+      isNewBest = tryRecordBestTime(elapsed);
+      renderBestTime();
+    }
+
+    elOverTime.textContent = formatTimeSec(elapsed) + 's';
+    elOverBest.textContent = bestTimeSec === null ? '—' : formatTimeSec(bestTimeSec) + 's';
     elOverCoins.textContent = world.coinCount;
+    elOverRecord.hidden = !isNewBest;
 
     if (world.state === 'won') {
       if (world.winner === 'player') {
-        elOverTitle.textContent = 'You beat the ghost!';
-        elOverLine.textContent  = 'Clean run. Try a faster line next time.';
+        elOverTitle.textContent = 'You beat the ghost';
+        elOverLine.textContent = 'Fastest line wins bragging rights.';
         elOverResult.textContent = 'Win';
-        elOverResult.style.color = 'var(--green)';
+        elOverResult.className = 'mono is-win';
       } else if (world.winner === 'tie') {
         elOverTitle.textContent = 'Photo finish';
-        elOverLine.textContent  = 'You hit the flag on the same frame as the ghost.';
+        elOverLine.textContent = 'Same frame at the flagpole.';
         elOverResult.textContent = 'Tie';
-        elOverResult.style.color = 'var(--gold)';
+        elOverResult.className = 'mono';
       } else {
-        elOverTitle.textContent = 'You reached the flag';
-        elOverLine.textContent  = 'Nice run.';
-        elOverResult.textContent = 'Cleared';
-        elOverResult.style.color = 'var(--text)';
+        elOverTitle.textContent = 'Level clear';
+        elOverLine.textContent = 'You reached the flag.';
+        elOverResult.textContent = 'Clear';
+        elOverResult.className = 'mono';
       }
     } else {
       elOverTitle.textContent = world.winner === 'ghost'
-        ? 'The ghost beat you'
-        : 'Run ended';
+        ? 'Ghost wins'
+        : 'Run over';
       elOverLine.textContent = world.player.alive
-        ? 'Better luck on the next run.'
-        : 'You took a hit. Press R or click below to retry.';
+        ? 'Try again — press R to reset.'
+        : 'You were hit. Press R to reset.';
       elOverResult.textContent = world.winner === 'ghost' ? 'Loss' : '—';
-      elOverResult.style.color = world.winner === 'ghost' ? 'var(--red-soft)' : 'var(--text-muted)';
+      elOverResult.className = 'mono is-loss';
     }
 
-    elOverlay.classList.add('show');
+    elOverlay.hidden = false;
   }
-
-  // --- Fixed-timestep game loop ------------------------------
-  let lastMs = performance.now();
-  let acc = 0;
 
   function loop(now) {
     requestAnimationFrame(loop);
     const dt = now - lastMs;
     lastMs = now;
+
     if (paused) {
-      // Still draw so the canvas isn't blank
       drawWorld(ctx, world);
       drawPauseHint(ctx);
       return;
     }
 
     acc += dt;
-    if (acc > 250) acc = 250;       // avoid catch-up storm after tab switch
+    if (acc > 250) acc = 250;
 
-    // Tick at 60 Hz
     while (acc >= FRAME_MS) {
       tick(now);
       acc -= FRAME_MS;
@@ -218,7 +294,6 @@
 
     const playerInputs = getPlayerInputs();
 
-    // Start the timer on first input
     if (!runStarted && playerInputs.size > 0) {
       runStarted = true;
       runStartMs = now;
@@ -226,8 +301,9 @@
 
     let ghostInputs = new Set();
     if (world.ghostEnabled && runStarted) {
-      try { ghostInputs = ghostPolicy(world); }
-      catch (err) {
+      try {
+        ghostInputs = ghostPolicy(world);
+      } catch (err) {
         console.error('[ghost policy error]', err);
         ghostInputs = new Set();
       }
@@ -237,27 +313,26 @@
 
     if (world.state !== 'playing' && runEndMs === 0) {
       runEndMs = now;
-      // Defer overlay one tick so the final frame paints first
-      setTimeout(showOverlay, 60);
+      clearOverlayTimer();
+      overlayTimerId = setTimeout(showOverlay, 60);
     }
   }
 
   function drawPauseHint(ctx) {
     ctx.save();
-    ctx.fillStyle = 'rgba(8, 12, 22, 0.55)';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    ctx.fillStyle = 'white';
-    ctx.font = 'bold 28px Inter, sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.font = '600 24px Inter, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Paused', VIEW_W / 2, VIEW_H / 2 - 12);
-    ctx.font = '14px Inter, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
-    ctx.fillText('Press P to resume', VIEW_W / 2, VIEW_H / 2 + 18);
+    ctx.fillText('Paused', VIEW_W / 2, VIEW_H / 2 - 10);
+    ctx.font = '13px Inter, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.fillText('P to resume · R to restart', VIEW_W / 2, VIEW_H / 2 + 16);
     ctx.restore();
   }
 
-  // --- Wire up event listeners -------------------------------
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
 
@@ -266,27 +341,11 @@
   elOverRestart.addEventListener('click', restart);
   elGhostToggle.addEventListener('change', applyGhostToggle);
 
-  // Focus canvas so it gets keyboard events on first click too
-  canvas.tabIndex = 0;
-  canvas.addEventListener('click', () => canvas.focus());
+  canvas.addEventListener('pointerdown', () => canvas.focus());
 
-  // --- Boot --------------------------------------------------
   applyGhostToggle();
   renderGhostMeta();
+  renderBestTime();
   requestAnimationFrame(loop);
-
-  // ----------------------------------------------------------
-  // To swap in a real RL trajectory, uncomment + edit:
-  //
-  //   window.Ghost.loadFromJson('data/ghost_trained.json')
-  //     .then(({policy, meta}) => {
-  //       ghostPolicy = policy;
-  //       ghostMeta = meta;
-  //       renderGhostMeta();
-  //       restart();
-  //     });
-  //
-  // The format is documented in js/ghost.js.
-  // ----------------------------------------------------------
 
 })();
