@@ -46,14 +46,14 @@
     },
     "2-1": {
       "weights": "weights/mario_dqn/best_2-1.npy",
-      "score": 530.47055,
+      "score": 530.47272,
       "level": "2-1",
       "env_id": "SuperMarioBros-2-1-v3",
-      "episode": 29,
+      "episode": 19,
       "x_pos": 530,
       "flag_get": false,
-      "steps": 170,
-      "shaped_reward": 470.5500000000009
+      "steps": 156,
+      "shaped_reward": 472.7200000000008
     }
   }
 }
