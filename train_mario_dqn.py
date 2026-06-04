@@ -104,7 +104,8 @@ def run_episode(
             idle_penalty=IDLE_PENALTY,
         )
 
-        agent.store(state, action, shaped_reward, next_state, done)
+        if learn:
+            agent.store(state, action, shaped_reward, next_state, done)
         state = next_state
         total_reward += reward
         shaped_total += shaped_reward
@@ -126,6 +127,60 @@ def run_episode(
     }
 
 
+def score_episode_result(episode_result: dict) -> float:
+    return episode_score(
+        x_pos=episode_result.get("x_pos"),
+        flag_get=episode_result.get("flag_get", False),
+        shaped_reward=episode_result.get("shaped_total", 0.0),
+    )
+
+
+def evaluate_greedy_agent(
+    agent,
+    level: MarioLevel,
+    *,
+    frame_skip: int,
+    max_steps: int,
+    episodes: int,
+) -> dict:
+    """Run no-learning, epsilon=0 rollouts and return the best result."""
+    eval_episodes = max(1, int(episodes))
+    previous_epsilon = agent.epsilon
+    results = []
+
+    agent.epsilon = 0.0
+    try:
+        for eval_idx in range(eval_episodes):
+            env = make_level_env(level)
+            try:
+                result = run_episode(
+                    env,
+                    agent,
+                    frame_skip=frame_skip,
+                    max_steps=max_steps,
+                    learn=False,
+                    learn_start=0,
+                    train_every=1,
+                    grad_updates=0,
+                )
+            finally:
+                env.close()
+
+            result["score"] = score_episode_result(result)
+            result["eval_episode"] = eval_idx
+            results.append(result)
+    finally:
+        agent.epsilon = previous_epsilon
+
+    best_result = max(results, key=lambda item: item["score"])
+    return {
+        "episodes": eval_episodes,
+        "scores": [float(result["score"]) for result in results],
+        "best": best_result,
+        "mean_score": float(np.mean([result["score"] for result in results])),
+    }
+
+
 def maybe_save_best(
     agent,
     level: MarioLevel,
@@ -135,15 +190,44 @@ def maybe_save_best(
     weights_dir: Path,
     manifest_path: Path,
     manifest: dict,
+    *,
+    frame_skip: int,
+    max_steps: int,
+    eval_episodes: int,
 ) -> bool:
-    score = episode_score(
-        x_pos=episode_result.get("x_pos"),
-        flag_get=episode_result.get("flag_get", False),
-        shaped_reward=episode_result.get("shaped_total", 0.0),
-    )
+    training_score = score_episode_result(episode_result)
     key = level.key
     prev = best_scores.get(key, -1.0)
+    if training_score <= prev:
+        return False
+
+    if eval_episodes > 0:
+        eval_summary = evaluate_greedy_agent(
+            agent,
+            level,
+            frame_skip=frame_skip,
+            max_steps=max_steps,
+            episodes=eval_episodes,
+        )
+        best_eval = eval_summary["best"]
+        score = float(best_eval["score"])
+    else:
+        eval_summary = {
+            "episodes": 0,
+            "scores": [],
+            "mean_score": training_score,
+            "best": episode_result,
+        }
+        best_eval = episode_result
+        score = training_score
+
     if score <= prev:
+        print(
+            f"  [checkpoint] training candidate for {key} reached "
+            f"score={training_score:.1f}, but greedy score={score:.1f} "
+            f"did not beat previous={prev:.1f}",
+            flush=True,
+        )
         return False
 
     best_scores[key] = score
@@ -153,10 +237,15 @@ def maybe_save_best(
         "env_id": level.env_id,
         "episode": episode_idx,
         "score": score,
-        "x_pos": episode_result.get("x_pos"),
-        "flag_get": episode_result.get("flag_get", False),
-        "steps": episode_result.get("steps"),
-        "shaped_reward": episode_result.get("shaped_total"),
+        "score_type": "greedy_eval" if eval_episodes > 0 else "training_episode",
+        "training_score": training_score,
+        "x_pos": best_eval.get("x_pos"),
+        "flag_get": best_eval.get("flag_get", False),
+        "steps": best_eval.get("steps"),
+        "shaped_reward": best_eval.get("shaped_total"),
+        "eval_episodes": eval_summary["episodes"],
+        "eval_scores": eval_summary["scores"],
+        "eval_mean_score": eval_summary["mean_score"],
     }
     agent.save(out_path, meta=meta)
     manifest.setdefault("levels", {})[key] = {
@@ -166,8 +255,9 @@ def maybe_save_best(
     }
     save_manifest(manifest_path, manifest)
     print(
-        f"  [checkpoint] new best for {key}: score={score:.1f} "
-        f"x={meta['x_pos']} flag={meta['flag_get']} -> {out_path}",
+        f"  [checkpoint] new greedy best for {key}: score={score:.1f} "
+        f"train={training_score:.1f} x={meta['x_pos']} "
+        f"flag={meta['flag_get']} -> {out_path}",
         flush=True,
     )
     return True
@@ -180,6 +270,7 @@ def train(
     frame_skip: int,
     max_steps: int,
     resume: str | None,
+    eval_episodes: int,
 ) -> None:
     weights_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = weights_dir / "manifest.json"
@@ -202,14 +293,15 @@ def train(
     else:
         agent = build_fresh_agent(n_actions, fast_transformer=True)
         print(
-        f"Training on level: {levels[0].key}",
-        flush=True,
-)
+            f"Training on level: {levels[0].key}",
+            flush=True,
+        )
 
     print(
         f"Settings: episodes={episodes} frame_skip={frame_skip} "
         f"max_steps={max_steps} batch={agent.batch_size} "
-        f"learn_start={LEARN_START} train_every={TRAIN_EVERY}",
+        f"learn_start={LEARN_START} train_every={TRAIN_EVERY} "
+        f"eval_episodes={eval_episodes}",
         flush=True,
     )
 
@@ -240,6 +332,9 @@ def train(
             weights_dir,
             manifest_path,
             manifest,
+            frame_skip=frame_skip,
+            max_steps=max_steps,
+            eval_episodes=eval_episodes,
         )
 
         avg_loss = float(np.mean(result["losses"])) if result["losses"] else 0.0
@@ -271,6 +366,12 @@ def parse_args():
     parser.add_argument("--frame-skip", type=int, default=FRAME_SKIP)
     parser.add_argument("--max-steps", type=int, default=MAX_EPISODE_STEPS)
     parser.add_argument("--resume", type=str, default=None, help="Path to latest.npy to resume")
+    parser.add_argument(
+        "--eval-episodes",
+        type=int,
+        default=1,
+        help="Greedy epsilon=0 rollouts to verify a candidate before saving best weights",
+    )
     return parser.parse_args()
 
 
@@ -282,6 +383,7 @@ def main():
         frame_skip=args.frame_skip,
         max_steps=args.max_steps,
         resume=args.resume,
+        eval_episodes=args.eval_episodes,
     )
 
 
