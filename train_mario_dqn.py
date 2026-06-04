@@ -36,7 +36,7 @@ MAX_EPISODE_STEPS = 350
 TRAIN_EVERY = 4
 GRAD_UPDATES_PER_TRAIN = 1
 LEARN_START = 800
-LOG_EVERY = 50
+LOG_EVERY = 1
 
 PROGRESS_REWARD_SCALE = 0.05
 IDLE_PENALTY = -0.01
@@ -189,7 +189,7 @@ def train(
         for key, entry in manifest.get("levels", {}).items()
     }
 
-    levels = list(iter_first_five_levels())
+    levels = [MarioLevel(world=1, stage=1)]
     probe_env = make_level_env(levels[0])
     n_actions = probe_env.action_space.n
     probe_env.close()
@@ -202,10 +202,9 @@ def train(
     else:
         agent = build_fresh_agent(n_actions, fast_transformer=True)
         print(
-            f"Training on levels: {', '.join(l.key for l in levels)} "
-            f"({len(levels)} stages, worlds 1–2)",
-            flush=True,
-        )
+        f"Training on level: {levels[0].key}",
+        flush=True,
+)
 
     print(
         f"Settings: episodes={episodes} frame_skip={frame_skip} "
