@@ -15,7 +15,19 @@ uvicorn server:app --host 127.0.0.1 --port 8000
 Use `--reload` only while editing backend code. For playing, leave it off so the
 backend does less background work.
 
-### 2. Frontend
+### 2. Generate ghosts from training weights
+
+After activating the same Python 3.10 environment used by the backend:
+
+```bash
+cd web_mario
+python backend\generate_weight_ghosts.py
+```
+
+This refreshes the `AI_w*-v*.json` ghosts in `backend\ghosts` from
+`weights\mario_dqn\manifest.json`.
+
+### 3. Frontend
 
 Open a second terminal:
 

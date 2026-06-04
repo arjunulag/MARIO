@@ -848,7 +848,7 @@ def make_mario_ghost_sprite(
     if jumping and len(sprites) > 5:
         frame_index = 5
     elif running_or_walking and len(sprites) > 4:
-        walk_frames = [1, 2, 3, 4]
+        walk_frames = [1, 2, 3]
         frame_index = walk_frames[(step_idx // 4) % len(walk_frames)]
     else:
         frame_index = 0
