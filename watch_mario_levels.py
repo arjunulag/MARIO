@@ -5,6 +5,7 @@ using that level's best saved weights.
 Usage:
     python watch_mario_levels.py
     python watch_mario_levels.py --level 1-1
+    python watch_mario_levels.py --level 1-1 --weights weights/mario_dqn/best_1-1.npy
     python watch_mario_levels.py --all --episodes 3 --delay 0.02
     python watch_mario_levels.py --weights-dir weights/mario_dqn --no-render
 """
@@ -20,19 +21,18 @@ import numpy as np
 
 from mario_dqn_checkpoint import load_agent, load_manifest
 from mario_levels import (
-    FIRST_FIVE_LEVELS,
     MarioLevel,
     iter_first_five_levels,
     level_from_key,
     make_level_env,
 )
-from mario_training_utils import shape_mario_reward
 from preprocessFrames import build_initial_stack, preprocess_frame
 from train_mario_dqn import env_step
 
 
 DEFAULT_WEIGHTS_DIR = Path("weights/mario_dqn")
 DEFAULT_MANIFEST = DEFAULT_WEIGHTS_DIR / "manifest.json"
+DISPLAY_WINDOW_NAME = "Mario DQN - press q or Esc to close"
 
 
 def resolve_weights_path(level: MarioLevel, weights_dir: Path, manifest: dict) -> Path | None:
@@ -48,6 +48,30 @@ def resolve_weights_path(level: MarioLevel, weights_dir: Path, manifest: dict) -
     return None
 
 
+def forward_propagate_action(agent, state: np.ndarray) -> tuple[int, np.ndarray]:
+    """
+    Forward propagate one stacked frame state through the loaded model.
+
+    agent.q_values(state) runs the trained CNN, feeds the CNN embedding into the
+    Transformer, and returns DQN Q-values for each discrete Mario action.
+    """
+    q_values = np.asarray(agent.q_values(state), dtype=np.float64)
+    return int(np.argmax(q_values)), q_values
+
+
+def display_frame(frame: np.ndarray, delay: float) -> bool:
+    """Show one RGB emulator frame in an OpenCV window."""
+    import cv2
+
+    if frame is None:
+        return True
+
+    bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    cv2.imshow(DISPLAY_WINDOW_NAME, bgr_frame)
+    key = cv2.waitKey(max(1, int(delay * 1000))) & 0xFF
+    return key not in (ord("q"), 27)
+
+
 def play_level(
     level: MarioLevel,
     weights_path: Path,
@@ -61,7 +85,7 @@ def play_level(
     agent = load_agent(weights_path, epsilon=0.0)
     results: list[dict] = []
 
-    render_mode = "human" if render else None
+    render_mode = None
     env = make_level_env(level, render_mode=render_mode)
 
     print(f"\n=== {level.key} ({level.env_id}) ===", flush=True)
@@ -84,16 +108,25 @@ def play_level(
             last_info: dict = {}
 
             while not done and step < max_steps:
-                action = int(np.argmax(agent.q_values(state)))
+                action, q_values = forward_propagate_action(agent, state)
+                if step == 0:
+                    print(
+                        "  first forward pass: "
+                        f"action={action} q_values={np.array2string(q_values, precision=2)}",
+                        flush=True,
+                    )
                 frame, reward, done, info = env_step(env, action, frame_skip)
                 last_info = info if isinstance(info, dict) else {}
+
+                if render and not display_frame(frame, delay):
+                    done = True
 
                 stack.append(preprocess_frame(frame))
                 state = np.stack(list(stack), axis=0)
                 total_reward += reward
                 step += 1
 
-                if delay > 0 and render:
+                if delay > 0 and not render:
                     time.sleep(delay)
 
             flag = bool(last_info.get("flag_get", False))
@@ -114,6 +147,10 @@ def play_level(
             )
     finally:
         env.close()
+        if render:
+            import cv2
+
+            cv2.destroyAllWindows()
 
     return results
 
@@ -130,6 +167,11 @@ def parse_args():
     )
     parser.add_argument("--all", action="store_true", help="Play every first-five level")
     parser.add_argument("--weights-dir", type=Path, default=DEFAULT_WEIGHTS_DIR)
+    parser.add_argument(
+        "--weights",
+        type=Path,
+        help="Specific checkpoint to load. Use with exactly one --level.",
+    )
     parser.add_argument("--episodes", type=int, default=1, help="Runs per level")
     parser.add_argument("--frame-skip", type=int, default=4)
     parser.add_argument("--max-steps", type=int, default=400)
@@ -147,9 +189,16 @@ def main():
     else:
         levels = list(iter_first_five_levels())
 
+    if args.weights and len(levels) != 1:
+        print("--weights must be used with exactly one --level.", file=sys.stderr)
+        sys.exit(2)
+
     missing: list[str] = []
     for level in levels:
-        weights_path = resolve_weights_path(level, args.weights_dir, manifest)
+        weights_path = args.weights if args.weights else resolve_weights_path(level, args.weights_dir, manifest)
+        if weights_path is not None and not weights_path.is_file():
+            print(f"Weights file not found: {weights_path}", file=sys.stderr)
+            sys.exit(1)
         if weights_path is None:
             missing.append(level.key)
             continue
